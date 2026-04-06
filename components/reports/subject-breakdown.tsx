@@ -1,0 +1,150 @@
+'use client'
+
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Progress } from '@/components/ui/progress'
+import { PieChart, BookOpen } from 'lucide-react'
+import {
+  Cell,
+  Pie,
+  PieChart as RePieChart,
+  ResponsiveContainer,
+  Tooltip,
+  Legend,
+} from 'recharts'
+
+interface SubjectBreakdownProps {
+  timeRange: string
+}
+
+export function SubjectBreakdown({ timeRange }: SubjectBreakdownProps) {
+  // Placeholder data - will be populated from DB
+  const subjects = [
+    { name: 'Mathematics', hours: 0, color: '#3B82F6', targetHours: 10 },
+    { name: 'Physics', hours: 0, color: '#10B981', targetHours: 8 },
+    { name: 'Computer Science', hours: 0, color: '#8B5CF6', targetHours: 12 },
+    { name: 'Chemistry', hours: 0, color: '#F59E0B', targetHours: 6 },
+  ]
+
+  const totalHours = subjects.reduce((sum, s) => sum + s.hours, 0)
+  const totalTargetHours = subjects.reduce((sum, s) => sum + s.targetHours, 0)
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Pie Chart */}
+      <Card className="bg-card border-border">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg text-card-foreground flex items-center gap-2">
+            <PieChart className="w-5 h-5 text-primary" />
+            Time Distribution
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {totalHours === 0 ? (
+            <div className="flex flex-col items-center justify-center h-[300px]">
+              <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                <BookOpen className="w-8 h-8 text-muted-foreground" />
+              </div>
+              <p className="text-sm text-muted-foreground text-center">
+                No study time recorded
+              </p>
+              <p className="text-xs text-muted-foreground text-center mt-1">
+                Start studying to see your time distribution
+              </p>
+            </div>
+          ) : (
+            <div className="h-[300px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <RePieChart>
+                  <Pie
+                    data={subjects}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={2}
+                    dataKey="hours"
+                    nameKey="name"
+                  >
+                    {subjects.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        const data = payload[0].payload
+                        return (
+                          <div className="bg-popover border border-border rounded-lg p-3 shadow-lg">
+                            <p className="text-sm font-medium text-popover-foreground">{data.name}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {data.hours}h studied ({((data.hours / totalHours) * 100).toFixed(1)}%)
+                            </p>
+                          </div>
+                        )
+                      }
+                      return null
+                    }}
+                  />
+                  <Legend
+                    verticalAlign="bottom"
+                    height={36}
+                    formatter={(value) => <span className="text-sm text-muted-foreground">{value}</span>}
+                  />
+                </RePieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Subject Progress */}
+      <Card className="bg-card border-border">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg text-card-foreground flex items-center gap-2">
+            <BookOpen className="w-5 h-5 text-accent" />
+            Subject Progress (Weekly)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col gap-6">
+            {subjects.map((subject) => {
+              const progress = subject.targetHours > 0
+                ? Math.min((subject.hours / subject.targetHours) * 100, 100)
+                : 0
+              
+              return (
+                <div key={subject.name}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-3 h-3 rounded-full"
+                        style={{ backgroundColor: subject.color }}
+                      />
+                      <span className="text-sm font-medium text-foreground">{subject.name}</span>
+                    </div>
+                    <span className="text-sm text-muted-foreground">
+                      {subject.hours}h / {subject.targetHours}h
+                    </span>
+                  </div>
+                  <Progress
+                    value={progress}
+                    className="h-2"
+                  />
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="mt-6 p-4 rounded-lg bg-muted/50">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Total Progress</span>
+              <span className="text-sm font-medium text-foreground">
+                {totalHours}h / {totalTargetHours}h ({totalTargetHours > 0 ? Math.round((totalHours / totalTargetHours) * 100) : 0}%)
+              </span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
