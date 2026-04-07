@@ -1,3 +1,5 @@
+import { Pool } from 'pg'
+
 function parseBoolean(value: string | undefined): boolean | undefined {
   if (value === undefined) return undefined
   const normalized = value.trim().toLowerCase()

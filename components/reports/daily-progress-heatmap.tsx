@@ -110,15 +110,15 @@ export function DailyProgressHeatmap() {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-3 gap-3 md:grid-cols-4">
-          <div className="rounded-lg bg-muted/40 px-3 py-2">
+          <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 shadow-sm">
             <p className="text-xs text-muted-foreground">Active Days</p>
             <p className="text-lg font-semibold text-foreground">{heatmap.activeDays}</p>
           </div>
-          <div className="rounded-lg bg-muted/40 px-3 py-2">
+          <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 shadow-sm">
             <p className="text-xs text-muted-foreground">Sessions</p>
             <p className="text-lg font-semibold text-foreground">{heatmap.totalSessions}</p>
           </div>
-          <div className="rounded-lg bg-muted/40 px-3 py-2">
+          <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 shadow-sm">
             <p className="text-xs text-muted-foreground">Total Hours</p>
             <p className="text-lg font-semibold text-foreground">{(heatmap.totalMinutes / 60).toFixed(1)}h</p>
           </div>
@@ -130,8 +130,8 @@ export function DailyProgressHeatmap() {
           </div>
         ) : (
           <div className="overflow-x-auto pb-2">
-            <div className="min-w-[760px]">
-              <div className="relative mb-2 h-5 text-[10px] text-muted-foreground">
+            <div className="min-w-[760px] rounded-xl border border-border/60 bg-muted/10 p-4 shadow-sm">
+              <div className="relative mb-3 h-5 text-[10px] font-medium text-muted-foreground">
                 {heatmap.monthMarkers.map((marker) => (
                   <span
                     key={marker.day}
@@ -143,18 +143,18 @@ export function DailyProgressHeatmap() {
                 ))}
               </div>
 
-              <div className="grid grid-flow-col auto-cols-[12px] grid-rows-7 gap-[3px]">
+              <div className="grid grid-flow-col auto-cols-[12px] grid-rows-7 gap-[3px] rounded-lg bg-background/60 p-2">
                 {heatmap.weeks.flat().map((cell) => {
                   const colorClass =
                     cell.level === 0
-                      ? 'bg-muted/40'
+                      ? 'bg-muted/70 ring-1 ring-border/50'
                       : cell.level === 1
-                        ? 'bg-emerald-900/60'
+                        ? 'bg-emerald-200 ring-1 ring-emerald-300/70'
                         : cell.level === 2
-                          ? 'bg-emerald-700/70'
+                          ? 'bg-emerald-300 ring-1 ring-emerald-400/70'
                           : cell.level === 3
-                            ? 'bg-emerald-500/80'
-                            : 'bg-emerald-400'
+                            ? 'bg-emerald-500 ring-1 ring-emerald-600/60'
+                            : 'bg-emerald-600 ring-1 ring-emerald-700/70'
 
                   return (
                     <div
@@ -169,13 +169,13 @@ export function DailyProgressHeatmap() {
           </div>
         )}
 
-        <div className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
+        <div className="flex items-center justify-end gap-2 text-xs font-medium text-muted-foreground">
           <span>Less</span>
-          <span className="h-3 w-3 rounded-[2px] bg-muted/40" />
-          <span className="h-3 w-3 rounded-[2px] bg-emerald-900/60" />
-          <span className="h-3 w-3 rounded-[2px] bg-emerald-700/70" />
-          <span className="h-3 w-3 rounded-[2px] bg-emerald-500/80" />
-          <span className="h-3 w-3 rounded-[2px] bg-emerald-400" />
+          <span className="h-3 w-3 rounded-[2px] bg-muted/70 ring-1 ring-border/50" />
+          <span className="h-3 w-3 rounded-[2px] bg-emerald-200 ring-1 ring-emerald-300/70" />
+          <span className="h-3 w-3 rounded-[2px] bg-emerald-300 ring-1 ring-emerald-400/70" />
+          <span className="h-3 w-3 rounded-[2px] bg-emerald-500 ring-1 ring-emerald-600/60" />
+          <span className="h-3 w-3 rounded-[2px] bg-emerald-600 ring-1 ring-emerald-700/70" />
           <span>More</span>
         </div>
       </CardContent>

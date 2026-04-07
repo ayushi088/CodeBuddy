@@ -18,12 +18,6 @@ export async function GET() {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // Get user settings
-    const settingsResult = await query(
-      `SELECT * FROM user_settings WHERE user_id = $1`,
-      [currentUser.id]
-    )
-
     const defaultSettings = {
       theme: 'dark',
       email_daily_summary: true,
@@ -36,7 +30,7 @@ export async function GET() {
 
     return NextResponse.json({
       user: result.rows[0],
-      settings: settingsResult.rows[0] || defaultSettings,
+      settings: defaultSettings,
     })
   } catch (error) {
     console.error('Get profile error:', error)
@@ -55,7 +49,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { name, avatar_url, settings } = body
+    const { name, avatar_url } = body
 
     // Update user profile
     if (name || avatar_url) {
@@ -66,36 +60,6 @@ export async function PATCH(request: NextRequest) {
              updated_at = NOW()
          WHERE id = $3`,
         [name, avatar_url, currentUser.id]
-      )
-    }
-
-    // Update settings
-    if (settings) {
-      await query(
-        `INSERT INTO user_settings (
-           user_id, theme, email_daily_summary, email_focus_alerts,
-           alert_sound_enabled, focus_reminder_interval, break_reminder_interval,
-           default_session_duration
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (user_id) DO UPDATE SET
-           theme = COALESCE($2, user_settings.theme),
-           email_daily_summary = COALESCE($3, user_settings.email_daily_summary),
-           email_focus_alerts = COALESCE($4, user_settings.email_focus_alerts),
-           alert_sound_enabled = COALESCE($5, user_settings.alert_sound_enabled),
-           focus_reminder_interval = COALESCE($6, user_settings.focus_reminder_interval),
-           break_reminder_interval = COALESCE($7, user_settings.break_reminder_interval),
-           default_session_duration = COALESCE($8, user_settings.default_session_duration),
-           updated_at = NOW()`,
-        [
-          currentUser.id,
-          settings.theme,
-          settings.email_daily_summary,
-          settings.email_focus_alerts,
-          settings.alert_sound_enabled,
-          settings.focus_reminder_interval,
-          settings.break_reminder_interval,
-          settings.default_session_duration,
-        ]
       )
     }
 

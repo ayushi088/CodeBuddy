@@ -38,7 +38,7 @@ function formatDayLabel(dateValue: string) {
 
 function emptyState(message: string) {
   return (
-    <div className="h-[280px] flex items-center justify-center text-sm text-muted-foreground">
+    <div className="h-[280px] flex items-center justify-center rounded-lg border border-dashed border-border/60 bg-muted/20 text-sm text-muted-foreground">
       {message}
     </div>
   )
@@ -46,7 +46,7 @@ function emptyState(message: string) {
 
 export function FocusScoreGraph({ data, isLoading }: { data: ReportAnalyticsDay[]; isLoading?: boolean }) {
   return (
-    <Card className="bg-card border-border">
+    <Card className="border-border bg-card shadow-sm">
       <CardHeader className="pb-2">
         <CardTitle className="text-lg text-card-foreground flex items-center gap-2">
           <LineChartIcon className="w-5 h-5 text-primary" />
@@ -62,9 +62,9 @@ export function FocusScoreGraph({ data, isLoading }: { data: ReportAnalyticsDay[
           <div className="h-[280px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={data.map((item) => ({ ...item, label: formatDayLabel(item.date) }))} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.25 0 0)" vertical={false} />
-                <XAxis dataKey="label" stroke="oklch(0.6 0 0)" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="oklch(0.6 0 0)" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} opacity={0.6} />
+                <XAxis dataKey="label" stroke="var(--muted-foreground)" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke="var(--muted-foreground)" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (active && payload && payload.length) {
@@ -78,7 +78,7 @@ export function FocusScoreGraph({ data, isLoading }: { data: ReportAnalyticsDay[
                     return null
                   }}
                 />
-                <Line type="monotone" dataKey="avgFocusScore" stroke="oklch(0.65 0.2 250)" strokeWidth={3} dot={false} />
+                <Line type="monotone" dataKey="avgFocusScore" stroke="var(--primary)" strokeWidth={3} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -90,7 +90,7 @@ export function FocusScoreGraph({ data, isLoading }: { data: ReportAnalyticsDay[
 
 export function StudyTimeGraph({ data, isLoading }: { data: ReportAnalyticsDay[]; isLoading?: boolean }) {
   return (
-    <Card className="bg-card border-border">
+    <Card className="border-border bg-card shadow-sm">
       <CardHeader className="pb-2">
         <CardTitle className="text-lg text-card-foreground flex items-center gap-2">
           <Clock3 className="w-5 h-5 text-accent" />
@@ -106,9 +106,9 @@ export function StudyTimeGraph({ data, isLoading }: { data: ReportAnalyticsDay[]
           <div className="h-[280px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={data.map((item) => ({ ...item, label: formatDayLabel(item.date) }))} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.25 0 0)" vertical={false} />
-                <XAxis dataKey="label" stroke="oklch(0.6 0 0)" fontSize={12} tickLine={false} axisLine={false} interval={0} angle={-35} textAnchor="end" height={56} />
-                <YAxis stroke="oklch(0.6 0 0)" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `${value}h`} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} opacity={0.6} />
+                <XAxis dataKey="label" stroke="var(--muted-foreground)" fontSize={12} tickLine={false} axisLine={false} interval={0} angle={-35} textAnchor="end" height={56} />
+                <YAxis stroke="var(--muted-foreground)" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `${value}h`} />
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (active && payload && payload.length) {
@@ -122,7 +122,7 @@ export function StudyTimeGraph({ data, isLoading }: { data: ReportAnalyticsDay[]
                     return null
                   }}
                 />
-                <Bar dataKey="studyHours" fill="oklch(0.65 0.2 250)" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="studyHours" fill="var(--primary)" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -134,7 +134,7 @@ export function StudyTimeGraph({ data, isLoading }: { data: ReportAnalyticsDay[]
 
 export function ProductivityGraph({ data, isLoading }: { data: ReportAnalyticsDay[]; isLoading?: boolean }) {
   return (
-    <Card className="bg-card border-border">
+    <Card className="border-border bg-card shadow-sm">
       <CardHeader className="pb-2">
         <CardTitle className="text-lg text-card-foreground flex items-center gap-2">
           <BrainCircuit className="w-5 h-5 text-success" />
@@ -152,13 +152,13 @@ export function ProductivityGraph({ data, isLoading }: { data: ReportAnalyticsDa
               <AreaChart data={data.map((item) => ({ ...item, label: formatDayLabel(item.date) }))} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="productivityGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="oklch(0.7 0.15 145)" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="oklch(0.7 0.15 145)" stopOpacity={0} />
+                    <stop offset="5%" stopColor="var(--success)" stopOpacity={0.28} />
+                    <stop offset="95%" stopColor="var(--success)" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.25 0 0)" vertical={false} />
-                <XAxis dataKey="label" stroke="oklch(0.6 0 0)" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="oklch(0.6 0 0)" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} opacity={0.6} />
+                <XAxis dataKey="label" stroke="var(--muted-foreground)" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke="var(--muted-foreground)" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (active && payload && payload.length) {
@@ -172,7 +172,7 @@ export function ProductivityGraph({ data, isLoading }: { data: ReportAnalyticsDa
                     return null
                   }}
                 />
-                <Area type="monotone" dataKey="productivityScore" stroke="oklch(0.7 0.18 145)" strokeWidth={2} fill="url(#productivityGradient)" />
+                <Area type="monotone" dataKey="productivityScore" stroke="var(--success)" strokeWidth={2} fill="url(#productivityGradient)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -186,7 +186,7 @@ export function WeeklyProgressGraph({ data, isLoading }: { data: ReportAnalytics
   const weekData = data.slice(-7)
 
   return (
-    <Card className="bg-card border-border">
+    <Card className="border-border bg-card shadow-sm">
       <CardHeader className="pb-2">
         <CardTitle className="text-lg text-card-foreground flex items-center gap-2">
           <Gauge className="w-5 h-5 text-warning" />
@@ -202,9 +202,9 @@ export function WeeklyProgressGraph({ data, isLoading }: { data: ReportAnalytics
           <div className="h-[280px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={weekData.map((item) => ({ ...item, label: formatDayLabel(item.date) }))} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.25 0 0)" vertical={false} />
-                <XAxis dataKey="label" stroke="oklch(0.6 0 0)" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="oklch(0.6 0 0)" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} opacity={0.6} />
+                <XAxis dataKey="label" stroke="var(--muted-foreground)" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke="var(--muted-foreground)" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (active && payload && payload.length) {
@@ -218,8 +218,8 @@ export function WeeklyProgressGraph({ data, isLoading }: { data: ReportAnalytics
                     return null
                   }}
                 />
-                <ReferenceLine y={100} stroke="oklch(0.7 0.16 85)" strokeDasharray="4 4" />
-                <Bar dataKey="completionRate" fill="oklch(0.75 0.16 85)" radius={[6, 6, 0, 0]} />
+                <ReferenceLine y={100} stroke="var(--warning)" strokeDasharray="4 4" />
+                <Bar dataKey="completionRate" fill="var(--warning)" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
