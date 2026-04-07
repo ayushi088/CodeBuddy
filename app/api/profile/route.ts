@@ -1,25 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db'
-import { verifyToken } from '@/lib/auth'
-import { cookies } from 'next/headers'
+import { getCurrentUser } from '@/lib/auth'
 
 export async function GET() {
   try {
-    const cookieStore = await cookies()
-    const token = cookieStore.get('auth_token')?.value
-
-    if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const payload = await verifyToken(token)
-    if (!payload) {
+    const currentUser = await getCurrentUser()
+    if (!currentUser) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
     }
 
     const result = await query(
-      `SELECT id, email, name, avatar_url, created_at FROM users WHERE id = $1`,
-      [payload.userId]
+      `SELECT id, email, full_name AS name, avatar_url, created_at FROM users WHERE id = $1`,
+      [currentUser.id]
     )
 
     if (result.rows.length === 0) {
@@ -29,7 +21,7 @@ export async function GET() {
     // Get user settings
     const settingsResult = await query(
       `SELECT * FROM user_settings WHERE user_id = $1`,
-      [payload.userId]
+      [currentUser.id]
     )
 
     const defaultSettings = {
@@ -57,15 +49,8 @@ export async function GET() {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const cookieStore = await cookies()
-    const token = cookieStore.get('auth_token')?.value
-
-    if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const payload = await verifyToken(token)
-    if (!payload) {
+    const currentUser = await getCurrentUser()
+    if (!currentUser) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
     }
 
@@ -76,11 +61,11 @@ export async function PATCH(request: NextRequest) {
     if (name || avatar_url) {
       await query(
         `UPDATE users 
-         SET name = COALESCE($1, name),
+         SET full_name = COALESCE($1, full_name),
              avatar_url = COALESCE($2, avatar_url),
              updated_at = NOW()
          WHERE id = $3`,
-        [name, avatar_url, payload.userId]
+        [name, avatar_url, currentUser.id]
       )
     }
 
@@ -102,7 +87,7 @@ export async function PATCH(request: NextRequest) {
            default_session_duration = COALESCE($8, user_settings.default_session_duration),
            updated_at = NOW()`,
         [
-          payload.userId,
+          currentUser.id,
           settings.theme,
           settings.email_daily_summary,
           settings.email_focus_alerts,

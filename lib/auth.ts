@@ -9,6 +9,20 @@ export interface User {
   full_name: string
   avatar_url: string | null
   timezone: string
+  course_name: string | null
+  branch: string | null
+  semester_year: string | null
+  institution_name: string | null
+  course_start_date: string | null
+  course_end_date: string | null
+  timetable_url: string | null
+  study_preferences: {
+    preferred_study_time: string
+    preferred_subject_ids: number[]
+    daily_study_goal_minutes: number
+    difficulty_level: string
+    break_preference: string
+  } | null
   notification_preferences: {
     email_daily_summary: boolean
     email_alerts: boolean
@@ -24,8 +38,49 @@ interface Session {
   expires_at: string
 }
 
+export type TokenPayload = {
+  userId: number
+  email: string
+  full_name: string
+}
+
 const SESSION_DURATION_DAYS = 30
 const SALT_ROUNDS = 12
+
+type LegacyUser = Omit<
+  User,
+  | 'course_name'
+  | 'branch'
+  | 'semester_year'
+  | 'institution_name'
+  | 'course_start_date'
+  | 'course_end_date'
+  | 'timetable_url'
+  | 'study_preferences'
+>
+
+function isUndefinedColumnError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      error.code === '42703'
+  )
+}
+
+function withProfileDefaults(user: LegacyUser): User {
+  return {
+    ...user,
+    course_name: null,
+    branch: null,
+    semester_year: null,
+    institution_name: null,
+    course_start_date: null,
+    course_end_date: null,
+    timetable_url: null,
+    study_preferences: null,
+  }
+}
 
 // Generate a secure random token
 function generateToken(): string {
@@ -50,12 +105,26 @@ export async function createUser(
 ): Promise<User | null> {
   try {
     const passwordHash = await hashPassword(password)
-    const user = await queryOne<User>(
-      `INSERT INTO users (email, password_hash, full_name) 
-       VALUES ($1, $2, $3) 
-       RETURNING id, email, full_name, avatar_url, timezone, notification_preferences, created_at`,
-      [email.toLowerCase(), passwordHash, fullName]
-    )
+    let user: User | null = null
+
+    try {
+      user = await queryOne<User>(
+        `INSERT INTO users (email, password_hash, full_name) 
+         VALUES ($1, $2, $3) 
+         RETURNING id, email, full_name, avatar_url, timezone, course_name, branch, semester_year, institution_name, course_start_date, course_end_date, timetable_url, study_preferences, notification_preferences, created_at`,
+        [email.toLowerCase(), passwordHash, fullName]
+      )
+    } catch (error) {
+      if (!isUndefinedColumnError(error)) throw error
+
+      const legacyUser = await queryOne<LegacyUser>(
+        `INSERT INTO users (email, password_hash, full_name) 
+         VALUES ($1, $2, $3) 
+         RETURNING id, email, full_name, avatar_url, timezone, notification_preferences, created_at`,
+        [email.toLowerCase(), passwordHash, fullName]
+      )
+      user = legacyUser ? withProfileDefaults(legacyUser) : null
+    }
     
     if (user) {
       // Create streak and points records for new user
@@ -84,11 +153,34 @@ export async function authenticateUser(
   email: string,
   password: string
 ): Promise<User | null> {
-  const result = await queryOne<User & { password_hash: string }>(
-    `SELECT id, email, full_name, avatar_url, timezone, notification_preferences, created_at, password_hash 
-     FROM users WHERE email = $1`,
-    [email.toLowerCase()]
-  )
+  let result: (User & { password_hash: string }) | null = null
+
+  try {
+    result = await queryOne<User & { password_hash: string }>(
+      `SELECT id, email, full_name, avatar_url, timezone, course_name, branch, semester_year, institution_name, course_start_date, course_end_date, timetable_url, study_preferences, notification_preferences, created_at, password_hash 
+       FROM users WHERE email = $1`,
+      [email.toLowerCase()]
+    )
+  } catch (error) {
+    if (!isUndefinedColumnError(error)) throw error
+
+    const legacyResult = await queryOne<
+      LegacyUser & {
+        password_hash: string
+      }
+    >(
+      `SELECT id, email, full_name, avatar_url, timezone, notification_preferences, created_at, password_hash 
+       FROM users WHERE email = $1`,
+      [email.toLowerCase()]
+    )
+
+    result = legacyResult
+      ? {
+          ...withProfileDefaults(legacyResult),
+          password_hash: legacyResult.password_hash,
+        }
+      : null
+  }
   
   if (!result) return null
   
@@ -139,11 +231,23 @@ export async function getCurrentUser(): Promise<User | null> {
     
     if (!session) return null
     
-    const user = await queryOne<User>(
-      `SELECT id, email, full_name, avatar_url, timezone, notification_preferences, created_at 
-       FROM users WHERE id = $1`,
-      [session.user_id]
-    )
+    let user: User | null = null
+    try {
+      user = await queryOne<User>(
+        `SELECT id, email, full_name, avatar_url, timezone, course_name, branch, semester_year, institution_name, course_start_date, course_end_date, timetable_url, study_preferences, notification_preferences, created_at 
+         FROM users WHERE id = $1`,
+        [session.user_id]
+      )
+    } catch (error) {
+      if (!isUndefinedColumnError(error)) throw error
+
+      const legacyUser = await queryOne<LegacyUser>(
+        `SELECT id, email, full_name, avatar_url, timezone, notification_preferences, created_at 
+         FROM users WHERE id = $1`,
+        [session.user_id]
+      )
+      user = legacyUser ? withProfileDefaults(legacyUser) : null
+    }
     
     return user
   } catch {
@@ -172,19 +276,43 @@ export async function validateSession(token: string): Promise<User | null> {
   
   if (!session) return null
   
-  const user = await queryOne<User>(
-    `SELECT id, email, full_name, avatar_url, timezone, notification_preferences, created_at 
-     FROM users WHERE id = $1`,
-    [session.user_id]
-  )
+  let user: User | null = null
+
+  try {
+    user = await queryOne<User>(
+      `SELECT id, email, full_name, avatar_url, timezone, course_name, branch, semester_year, institution_name, course_start_date, course_end_date, timetable_url, study_preferences, notification_preferences, created_at 
+       FROM users WHERE id = $1`,
+      [session.user_id]
+    )
+  } catch (error) {
+    if (!isUndefinedColumnError(error)) throw error
+
+    const legacyUser = await queryOne<LegacyUser>(
+      `SELECT id, email, full_name, avatar_url, timezone, notification_preferences, created_at 
+       FROM users WHERE id = $1`,
+      [session.user_id]
+    )
+    user = legacyUser ? withProfileDefaults(legacyUser) : null
+  }
   
   return user
+}
+
+export async function verifyToken(token: string): Promise<TokenPayload | null> {
+  const user = await validateSession(token)
+  if (!user) return null
+
+  return {
+    userId: user.id,
+    email: user.email,
+    full_name: user.full_name,
+  }
 }
 
 // Update user profile
 export async function updateUser(
   userId: number,
-  updates: Partial<Pick<User, 'full_name' | 'avatar_url' | 'timezone' | 'notification_preferences'>>
+  updates: Partial<Pick<User, 'full_name' | 'avatar_url' | 'timezone' | 'course_name' | 'branch' | 'semester_year' | 'institution_name' | 'course_start_date' | 'course_end_date' | 'timetable_url' | 'study_preferences' | 'notification_preferences'>>
 ): Promise<User | null> {
   const fields: string[] = []
   const values: unknown[] = []
@@ -202,6 +330,38 @@ export async function updateUser(
     fields.push(`timezone = $${paramIndex++}`)
     values.push(updates.timezone)
   }
+  if (updates.course_name !== undefined) {
+    fields.push(`course_name = $${paramIndex++}`)
+    values.push(updates.course_name)
+  }
+  if (updates.branch !== undefined) {
+    fields.push(`branch = $${paramIndex++}`)
+    values.push(updates.branch)
+  }
+  if (updates.semester_year !== undefined) {
+    fields.push(`semester_year = $${paramIndex++}`)
+    values.push(updates.semester_year)
+  }
+  if (updates.institution_name !== undefined) {
+    fields.push(`institution_name = $${paramIndex++}`)
+    values.push(updates.institution_name)
+  }
+  if (updates.course_start_date !== undefined) {
+    fields.push(`course_start_date = $${paramIndex++}`)
+    values.push(updates.course_start_date)
+  }
+  if (updates.course_end_date !== undefined) {
+    fields.push(`course_end_date = $${paramIndex++}`)
+    values.push(updates.course_end_date)
+  }
+  if (updates.timetable_url !== undefined) {
+    fields.push(`timetable_url = $${paramIndex++}`)
+    values.push(updates.timetable_url)
+  }
+  if (updates.study_preferences !== undefined) {
+    fields.push(`study_preferences = $${paramIndex++}`)
+    values.push(JSON.stringify(updates.study_preferences))
+  }
   if (updates.notification_preferences !== undefined) {
     fields.push(`notification_preferences = $${paramIndex++}`)
     values.push(JSON.stringify(updates.notification_preferences))
@@ -212,11 +372,59 @@ export async function updateUser(
   fields.push(`updated_at = NOW()`)
   values.push(userId)
   
-  const user = await queryOne<User>(
-    `UPDATE users SET ${fields.join(', ')} WHERE id = $${paramIndex} 
-     RETURNING id, email, full_name, avatar_url, timezone, notification_preferences, created_at`,
-    values
-  )
+  let user: User | null = null
+
+  try {
+    user = await queryOne<User>(
+      `UPDATE users SET ${fields.join(', ')} WHERE id = $${paramIndex} 
+       RETURNING id, email, full_name, avatar_url, timezone, course_name, branch, semester_year, institution_name, course_start_date, course_end_date, timetable_url, study_preferences, notification_preferences, created_at`,
+      values
+    )
+  } catch (error) {
+    if (!isUndefinedColumnError(error)) throw error
+
+    // Retry without new profile extension fields for legacy databases.
+    const legacyUpdates = {
+      full_name: updates.full_name,
+      avatar_url: updates.avatar_url,
+      timezone: updates.timezone,
+      notification_preferences: updates.notification_preferences,
+    }
+
+    const legacyFields: string[] = []
+    const legacyValues: unknown[] = []
+    let legacyParamIndex = 1
+
+    if (legacyUpdates.full_name !== undefined) {
+      legacyFields.push(`full_name = $${legacyParamIndex++}`)
+      legacyValues.push(legacyUpdates.full_name)
+    }
+    if (legacyUpdates.avatar_url !== undefined) {
+      legacyFields.push(`avatar_url = $${legacyParamIndex++}`)
+      legacyValues.push(legacyUpdates.avatar_url)
+    }
+    if (legacyUpdates.timezone !== undefined) {
+      legacyFields.push(`timezone = $${legacyParamIndex++}`)
+      legacyValues.push(legacyUpdates.timezone)
+    }
+    if (legacyUpdates.notification_preferences !== undefined) {
+      legacyFields.push(`notification_preferences = $${legacyParamIndex++}`)
+      legacyValues.push(JSON.stringify(legacyUpdates.notification_preferences))
+    }
+
+    if (legacyFields.length === 0) return null
+
+    legacyFields.push('updated_at = NOW()')
+    legacyValues.push(userId)
+
+    const legacyUser = await queryOne<LegacyUser>(
+      `UPDATE users SET ${legacyFields.join(', ')} WHERE id = $${legacyParamIndex}
+       RETURNING id, email, full_name, avatar_url, timezone, notification_preferences, created_at`,
+      legacyValues
+    )
+
+    user = legacyUser ? withProfileDefaults(legacyUser) : null
+  }
   
   return user
 }

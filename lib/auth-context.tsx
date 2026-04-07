@@ -9,6 +9,20 @@ export interface User {
   full_name: string
   avatar_url: string | null
   timezone: string
+  course_name: string | null
+  branch: string | null
+  semester_year: string | null
+  institution_name: string | null
+  course_start_date: string | null
+  course_end_date: string | null
+  timetable_url: string | null
+  study_preferences: {
+    preferred_study_time: string
+    preferred_subject_ids: number[]
+    daily_study_goal_minutes: number
+    difficulty_level: string
+    break_preference: string
+  } | null
   notification_preferences: {
     email_daily_summary: boolean
     email_alerts: boolean

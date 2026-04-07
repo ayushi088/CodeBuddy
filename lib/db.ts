@@ -1,10 +1,22 @@
-import { Pool } from 'pg'
+function parseBoolean(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined
+  const normalized = value.trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+  return undefined
+}
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
 
 type PgErrorWithCode = Error & { code?: string }
 
 function getNumberEnv(name: string, fallback: number): number {
   const raw = process.env[name]
   if (!raw) return fallback
+
   const parsed = Number(raw)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
@@ -15,19 +27,12 @@ function shouldUseDatabaseSSL(): boolean {
     return sslEnv === 'true' || sslEnv === '1' || sslEnv === 'require'
   }
 
-  // Some providers encode SSL requirement directly in the URL.
   if (process.env.DATABASE_URL?.includes('sslmode=require')) {
     return true
   }
 
   return process.env.NODE_ENV === 'production'
 }
-
-const useSSL = shouldUseDatabaseSSL()
-const maxConnections = getNumberEnv('DATABASE_POOL_MAX', 10)
-const idleTimeoutMillis = getNumberEnv('DATABASE_IDLE_TIMEOUT_MS', 30000)
-const connectionTimeoutMillis = getNumberEnv('DATABASE_CONNECT_TIMEOUT_MS', 12000)
-const queryRetryCount = getNumberEnv('DATABASE_QUERY_RETRY_COUNT', 1)
 
 function isTransientDatabaseError(error: unknown): boolean {
   const err = error as PgErrorWithCode
@@ -44,10 +49,16 @@ function isTransientDatabaseError(error: unknown): boolean {
   )
 }
 
+const useSSL = shouldUseDatabaseSSL()
+const maxConnections = getNumberEnv('DATABASE_POOL_MAX', 10)
+const idleTimeoutMillis = getNumberEnv('DATABASE_IDLE_TIMEOUT_MS', 30000)
+const connectionTimeoutMillis = getNumberEnv('DATABASE_CONNECT_TIMEOUT_MS', 12000)
+const queryRetryCount = getNumberEnv('DATABASE_QUERY_RETRY_COUNT', 1)
+
 // Create a connection pool for Render PostgreSQL
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: useSSL ? { rejectUnauthorized: false } : false,
+  ssl: useSSL ? { rejectUnauthorized: false } : undefined,
   max: maxConnections,
   idleTimeoutMillis,
   connectionTimeoutMillis,

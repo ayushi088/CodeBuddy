@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -15,15 +15,36 @@ import {
   FileText,
   PieChart,
 } from 'lucide-react'
-import { StudyTimeChart } from './study-time-chart'
-import { FocusTrendChart } from './focus-trend-chart'
+import { FocusScoreGraph, StudyTimeGraph, ProductivityGraph, WeeklyProgressGraph, type ReportAnalyticsDay } from './performance-graphs'
 import { SubjectBreakdown } from './subject-breakdown'
 import { SessionHistory } from './session-history'
 import { AttendanceReport } from './attendance-report'
+import { DailyProgressHeatmap } from './daily-progress-heatmap'
 
 export function ReportsContent() {
   const [timeRange, setTimeRange] = useState('7d')
   const [activeTab, setActiveTab] = useState('overview')
+  const [analytics, setAnalytics] = useState<ReportAnalyticsDay[]>([])
+  const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(true)
+
+  useEffect(() => {
+    const loadAnalytics = async () => {
+      setIsLoadingAnalytics(true)
+      try {
+        const days = timeRange === '7d' ? '7' : timeRange === '30d' ? '30' : timeRange === '90d' ? '90' : 'all'
+        const res = await fetch(`/api/reports/analytics?days=${days}`)
+        if (!res.ok) throw new Error('Failed to load analytics')
+        const data = await res.json()
+        setAnalytics(Array.isArray(data.daily) ? data.daily : [])
+      } catch {
+        setAnalytics([])
+      } finally {
+        setIsLoadingAnalytics(false)
+      }
+    }
+
+    void loadAnalytics()
+  }, [timeRange])
 
   const handleExportPDF = () => {
     // TODO: Implement PDF export using jspdf
@@ -115,14 +136,26 @@ export function ReportsContent() {
         </TabsList>
 
         <TabsContent value="overview">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <StudyTimeChart timeRange={timeRange} />
-            <FocusTrendChart timeRange={timeRange} />
+          <div className="space-y-6">
+            <Card className="bg-card border-border">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg text-card-foreground">Performance Graph / Analytics</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                  <FocusScoreGraph data={analytics} isLoading={isLoadingAnalytics} />
+                  <StudyTimeGraph data={analytics} isLoading={isLoadingAnalytics} />
+                  <ProductivityGraph data={analytics} isLoading={isLoadingAnalytics} />
+                  <WeeklyProgressGraph data={analytics} isLoading={isLoadingAnalytics} />
+                </div>
+              </CardContent>
+            </Card>
+            <DailyProgressHeatmap />
           </div>
         </TabsContent>
 
         <TabsContent value="focus">
-          <FocusTrendChart timeRange={timeRange} detailed />
+          <FocusScoreGraph data={analytics} isLoading={isLoadingAnalytics} />
         </TabsContent>
 
         <TabsContent value="subjects">
