@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { Plus, BookOpen, Clock, Target, Trash2, Pencil } from 'lucide-react'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { useSubjects } from '@/hooks/use-subjects'
 
 interface Subject {
   id: string
@@ -29,11 +31,7 @@ const COLORS = [
 ]
 
 export function SubjectsManager() {
-  const [subjects, setSubjects] = useState<Subject[]>([
-    { id: '1', name: 'Mathematics', color: '#3B82F6', targetHoursPerWeek: 10, studiedHoursThisWeek: 0 },
-    { id: '2', name: 'Physics', color: '#10B981', targetHoursPerWeek: 8, studiedHoursThisWeek: 0 },
-    { id: '3', name: 'Computer Science', color: '#8B5CF6', targetHoursPerWeek: 12, studiedHoursThisWeek: 0 },
-  ])
+  const { subjects, addSubject, updateSubject, deleteSubject } = useSubjects()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingSubject, setEditingSubject] = useState<Subject | null>(null)
 
@@ -47,20 +45,17 @@ export function SubjectsManager() {
     if (!formData.name.trim()) return
 
     if (editingSubject) {
-      setSubjects(prev => prev.map(s => 
-        s.id === editingSubject.id 
-          ? { ...s, name: formData.name, color: formData.color, targetHoursPerWeek: formData.targetHoursPerWeek }
-          : s
-      ))
-    } else {
-      const newSubject: Subject = {
-        id: Date.now().toString(),
+      updateSubject(editingSubject.id, {
         name: formData.name,
         color: formData.color,
         targetHoursPerWeek: formData.targetHoursPerWeek,
-        studiedHoursThisWeek: 0,
-      }
-      setSubjects(prev => [...prev, newSubject])
+      })
+    } else {
+      addSubject({
+        name: formData.name,
+        color: formData.color,
+        targetHoursPerWeek: formData.targetHoursPerWeek,
+      })
     }
 
     setIsDialogOpen(false)
@@ -79,7 +74,7 @@ export function SubjectsManager() {
   }
 
   const handleDelete = (id: string) => {
-    setSubjects(prev => prev.filter(s => s.id !== id))
+    deleteSubject(id)
   }
 
   const totalTargetHours = subjects.reduce((sum, s) => sum + s.targetHoursPerWeek, 0)
@@ -190,6 +185,15 @@ export function SubjectsManager() {
         </CardContent>
       </Card>
 
+      {subjects.length === 0 && (
+        <Alert className="mb-6">
+          <AlertTitle>No subjects added yet</AlertTitle>
+          <AlertDescription>
+            Add your own subjects first. The planner, tasks, and reports will use these instead of default Math or Physics entries.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Subjects Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {subjects.map(subject => {
@@ -252,6 +256,14 @@ export function SubjectsManager() {
             </Card>
           )
         })}
+        {subjects.length === 0 && (
+          <Card className="bg-card border-border md:col-span-2 lg:col-span-3">
+            <CardContent className="py-10 text-center">
+              <p className="text-sm font-medium text-foreground">No subjects yet</p>
+              <p className="text-xs text-muted-foreground mt-1">Click Add Subject to enter your course list.</p>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   )

@@ -159,10 +159,40 @@ export function ReportsContent() {
         </TabsContent>
 
         <TabsContent value="subjects">
+          <div className="mb-4">
+            <Card className="bg-card border-border">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg text-card-foreground">Subject-wise Performance Report</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Example format: DSA → 3 hours, ML → 2 hours, DBMS → 1 hour.
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  This section helps identify your strong and weak subjects from the study data.
+                </p>
+              </CardContent>
+            </Card>
+          </div>
           <SubjectBreakdown timeRange={timeRange} />
         </TabsContent>
 
         <TabsContent value="attendance">
+          <div className="mb-4">
+            <Card className="bg-card border-border">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg text-card-foreground">Attendance Report</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Example: Attendance → 85%, Present → 5, Absent → 1.
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Track present, absent, and late sessions to improve consistency.
+                </p>
+              </CardContent>
+            </Card>
+          </div>
           <AttendanceReport timeRange={timeRange} />
         </TabsContent>
 

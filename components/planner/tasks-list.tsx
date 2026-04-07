@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
   Plus,
   ListTodo,
@@ -19,6 +20,7 @@ import {
   Trash2,
   Filter,
 } from 'lucide-react'
+import { useSubjects } from '@/hooks/use-subjects'
 
 interface Task {
   id: string
@@ -37,12 +39,7 @@ export function TasksList() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [filterPriority, setFilterPriority] = useState<string>('all')
-
-  const subjects = [
-    { id: '1', name: 'Mathematics', color: '#3B82F6' },
-    { id: '2', name: 'Physics', color: '#10B981' },
-    { id: '3', name: 'Computer Science', color: '#8B5CF6' },
-  ]
+  const { subjects } = useSubjects()
 
   const [newTask, setNewTask] = useState({
     title: '',
@@ -185,24 +182,33 @@ export function TasksList() {
 
                 <div className="flex flex-col gap-2">
                   <Label>Subject</Label>
-                  <Select
-                    value={newTask.subjectId}
-                    onValueChange={(v) => setNewTask(prev => ({ ...prev, subjectId: v }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select subject" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {subjects.map(subject => (
-                        <SelectItem key={subject.id} value={subject.id}>
-                          <div className="flex items-center gap-2">
-                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: subject.color }} />
-                            {subject.name}
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {subjects.length === 0 ? (
+                    <Alert>
+                      <AlertTitle>No subjects added yet</AlertTitle>
+                      <AlertDescription>
+                        Add subjects in the Subjects tab before creating tasks.
+                      </AlertDescription>
+                    </Alert>
+                  ) : (
+                    <Select
+                      value={newTask.subjectId}
+                      onValueChange={(v) => setNewTask(prev => ({ ...prev, subjectId: v }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select subject" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {subjects.map(subject => (
+                          <SelectItem key={subject.id} value={subject.id}>
+                            <div className="flex items-center gap-2">
+                              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: subject.color }} />
+                              {subject.name}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -242,7 +248,7 @@ export function TasksList() {
                   />
                 </div>
 
-                <Button onClick={handleAddTask} className="mt-2">
+                <Button onClick={handleAddTask} className="mt-2" disabled={subjects.length === 0}>
                   Add Task
                 </Button>
               </div>
