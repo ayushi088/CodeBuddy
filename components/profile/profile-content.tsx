@@ -27,6 +27,8 @@ import {
   Award,
   Brain,
   Target,
+  Sun,
+  Moon,
 } from 'lucide-react'
 
 type SubjectOption = {
@@ -247,6 +249,10 @@ export function ProfileContent() {
     }
   }
 
+  const handleThemeToggle = async () => {
+    await handleThemeChange(themeMode === 'dark' ? 'light' : 'dark')
+  }
+
   const handleUploadTimetable = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -317,11 +323,23 @@ export function ProfileContent() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground">Settings</h1>
-        <p className="text-muted-foreground mt-1">
-          Manage your account and preferences
-        </p>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Settings</h1>
+          <p className="text-muted-foreground mt-1">
+            Manage your account and preferences
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleThemeToggle}
+          className="gap-2 rounded-full border-border bg-card px-4 shadow-sm"
+          aria-label={`Switch to ${themeMode === 'dark' ? 'light' : 'dark'} mode`}
+        >
+          {themeMode === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          <span>{themeMode === 'dark' ? 'Light mode' : 'Dark mode'}</span>
+        </Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -716,22 +734,6 @@ export function ProfileContent() {
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-6">
-              <div className="flex flex-col gap-4 p-4 rounded-lg bg-muted/50">
-                <div>
-                  <p className="text-sm font-medium text-foreground">Theme</p>
-                  <p className="text-xs text-muted-foreground">Choose light or dark mode for the app.</p>
-                </div>
-                <Select value={themeMode} onValueChange={handleThemeChange}>
-                  <SelectTrigger className="w-full md:w-56">
-                    <SelectValue placeholder="Select theme" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="light">Light</SelectItem>
-                    <SelectItem value="dark">Dark</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
               <div className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
                 <div className="flex items-center gap-3">
                   <Mail className="w-5 h-5 text-primary" />
