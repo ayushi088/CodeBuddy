@@ -1,12 +1,57 @@
 import { Pool } from 'pg'
 
+type PgErrorWithCode = Error & { code?: string }
+
+function getNumberEnv(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (!raw) return fallback
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function shouldUseDatabaseSSL(): boolean {
+  const sslEnv = process.env.DATABASE_SSL?.toLowerCase().trim()
+  if (sslEnv) {
+    return sslEnv === 'true' || sslEnv === '1' || sslEnv === 'require'
+  }
+
+  // Some providers encode SSL requirement directly in the URL.
+  if (process.env.DATABASE_URL?.includes('sslmode=require')) {
+    return true
+  }
+
+  return process.env.NODE_ENV === 'production'
+}
+
+const useSSL = shouldUseDatabaseSSL()
+const maxConnections = getNumberEnv('DATABASE_POOL_MAX', 10)
+const idleTimeoutMillis = getNumberEnv('DATABASE_IDLE_TIMEOUT_MS', 30000)
+const connectionTimeoutMillis = getNumberEnv('DATABASE_CONNECT_TIMEOUT_MS', 12000)
+const queryRetryCount = getNumberEnv('DATABASE_QUERY_RETRY_COUNT', 1)
+
+function isTransientDatabaseError(error: unknown): boolean {
+  const err = error as PgErrorWithCode
+  const message = (err?.message || '').toLowerCase()
+
+  if (err?.code && ['ECONNRESET', 'ETIMEDOUT', '57P01', '57P02', '57P03'].includes(err.code)) {
+    return true
+  }
+
+  return (
+    message.includes('connection terminated unexpectedly') ||
+    message.includes('connection timeout') ||
+    message.includes('read econnreset')
+  )
+}
+
 // Create a connection pool for Render PostgreSQL
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  ssl: useSSL ? { rejectUnauthorized: false } : false,
+  max: maxConnections,
+  idleTimeoutMillis,
+  connectionTimeoutMillis,
+  keepAlive: true,
 })
 
 // Test connection on startup
@@ -15,13 +60,28 @@ pool.on('error', (err) => {
 })
 
 export async function query<T>(text: string, params?: unknown[]): Promise<T[]> {
-  const start = Date.now()
-  const res = await pool.query(text, params)
-  const duration = Date.now() - start
-  if (process.env.NODE_ENV === 'development') {
-    console.log('Executed query', { text: text.substring(0, 50), duration, rows: res.rowCount })
+  let lastError: unknown
+
+  for (let attempt = 0; attempt <= queryRetryCount; attempt += 1) {
+    try {
+      const start = Date.now()
+      const res = await pool.query(text, params)
+      const duration = Date.now() - start
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Executed query', { text: text.substring(0, 50), duration, rows: res.rowCount, attempt })
+      }
+      return res.rows as T[]
+    } catch (error) {
+      lastError = error
+      const isRetryable = isTransientDatabaseError(error)
+      const hasRetriesLeft = attempt < queryRetryCount
+      if (!isRetryable || !hasRetriesLeft) {
+        throw error
+      }
+    }
   }
-  return res.rows as T[]
+
+  throw lastError
 }
 
 export async function queryOne<T>(text: string, params?: unknown[]): Promise<T | null> {
