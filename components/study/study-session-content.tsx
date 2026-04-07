@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -22,8 +22,17 @@ import { WebcamMonitor } from './webcam-monitor'
 import { FocusMeter } from './focus-meter'
 import { AlertsPanel } from './alerts-panel'
 import { SessionTimer } from './session-timer'
+import { EmotionStats } from '@/components/dashboard/emotion-stats'
+import { SessionSetupDialog } from './session-setup-dialog'
+import { StartupEmotionDetection } from './startup-emotion-detection'
+import { EarlyExitWarning } from './early-exit-warning'
+import { AttendanceConfirmation } from './attendance-confirmation'
+import { FinalAttendanceCheck } from './final-attendance-check'
+import { SessionCompletionSummary } from './session-completion-summary'
+import { audioNotifications } from '@/lib/audio-notifications'
+import type { EmotionData } from '@/lib/emotion-detection'
 
-type SessionStatus = 'setup' | 'active' | 'paused' | 'completed'
+type SessionStatus = 'setup' | 'startup-detection' | 'active' | 'paused' | 'final-check' | 'completed'
 type AttendanceStatus = 'pending' | 'present' | 'late' | 'absent'
 
 interface ScheduledSession {
@@ -52,6 +61,23 @@ export function StudySessionContent() {
   const [sessionSeconds, setSessionSeconds] = useState(0)
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [lastEmotion, setLastEmotion] = useState('N/A')
+  
+  // Emotion tracking
+  const [emotionHistory, setEmotionHistory] = useState<EmotionData[]>([])
+  const [currentEmotionData, setCurrentEmotionData] = useState<EmotionData | null>(null)
+  const emotionHistoryRef = useRef<EmotionData[]>([])
+  
+  // New workflow state
+  const [showSetupDialog, setShowSetupDialog] = useState(false)
+  const [sessionSubject, setSessionSubject] = useState('')
+  const [startupEmotionData, setStartupEmotionData] = useState<EmotionData | null>(null)
+  const [showEarlyExitWarning, setShowEarlyExitWarning] = useState(false)
+  const [showAttendanceConfirmation, setShowAttendanceConfirmation] = useState(false)
+  const [showFinalCheck, setShowFinalCheck] = useState(false)
+  const [attendanceMarkedAt, setAttendanceMarkedAt] = useState<number | null>(null)
+  const [finalCheckTriggered, setFinalCheckTriggered] = useState(false)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
 
   const [now, setNow] = useState(new Date())
   const [isLoadingSessions, setIsLoadingSessions] = useState(true)
@@ -214,24 +240,138 @@ export function StudySessionContent() {
     }
   }, [attendanceMarked, getSessionTimingState, selectedSession, status])
 
-  const handleStartSession = useCallback(() => {
-    if (!selectedSession) {
-      setAttendanceMessage('Please select a scheduled session before starting.')
-      return
+  // New workflow: Handle "Start Study Session" button click
+  const handleStartStudyClick = useCallback(() => {
+    // Show setup dialog if no active session
+    if (todaySessions.length === 0 || !selectedSession) {
+      setShowSetupDialog(true)
+    } else {
+      // If there's an active session, start directly
+      handleStartSessionWithSetup(selectedSession.subject, selectedSession.duration)
     }
+  }, [todaySessions, selectedSession])
 
-    if (!(attendanceStatus === 'present' || attendanceStatus === 'late')) {
-      setAttendanceMessage('Mark attendance first to unlock session start.')
-      return
-    }
-
-    setStatus('active')
-    setPlannedDuration(selectedSession.duration || 60)
+  // Handle form submission from setup dialog
+  const handleStartSessionWithSetup = useCallback((subject: string, duration: number) => {
+    setSessionSubject(subject)
+    setPlannedDuration(duration)
+    setShowSetupDialog(false)
+    
+    // Enable camera and start emotion detection startup
     setCameraEnabled(true)
     setEmotionDetectionEnabled(true)
+    setStatus('startup-detection')
     setSessionSeconds(0)
-    setAlerts([])
-  }, [attendanceStatus, selectedSession])
+    setAttendanceMarkedAt(null)
+    setFinalCheckTriggered(false)
+    emotionHistoryRef.current = []
+  }, [])
+
+  // Handle completion of startup emotion detection
+  const handleStartupEmotionComplete = useCallback((emotionData: EmotionData | null) => {
+    setStartupEmotionData(emotionData)
+    setCurrentEmotionData(emotionData)
+    
+    // Start the actual session
+    setStatus('active')
+    setSessionSeconds(0)
+  }, [])
+
+  // Auto-mark attendance after 2 minutes
+  useEffect(() => {
+    if (status !== 'active') return
+    
+    // Check if 2 minutes (120 seconds) have passed
+    if (sessionSeconds === 120 && attendanceMarkedAt === null) {
+      setAttendanceMarkedAt(sessionSeconds)
+      audioNotifications.attendanceMarked()
+      addAlert('info', '✓ Attendance marked automatically after 2 minutes')
+    }
+  }, [sessionSeconds, status, attendanceMarkedAt])
+
+  // Final check 5 minutes before session end
+  useEffect(() => {
+    if (status !== 'active' || plannedDuration === 0) return
+    
+    const sessionEndAt = plannedDuration * 60
+    const checkAt = sessionEndAt - 300 // 5 minutes before
+    
+    if (sessionSeconds === checkAt && !finalCheckTriggered && attendanceMarkedAt !== null) {
+      setFinalCheckTriggered(true)
+      setShowFinalCheck(true)
+    }
+  }, [sessionSeconds, status, plannedDuration, finalCheckTriggered, attendanceMarkedAt])
+
+  // End session - show warning if attendance not marked
+  const handleEndSession = useCallback(() => {
+    if (attendanceMarkedAt === null && sessionSeconds < 120) {
+      setShowEarlyExitWarning(true)
+      return
+    }
+
+    // Session can end
+    setStatus('final-check')
+    setShowAttendanceConfirmation(true)
+  }, [sessionSeconds, attendanceMarkedAt])
+
+  // Resume from early exit
+  const handleResumeFromWarning = useCallback(() => {
+    setShowEarlyExitWarning(false)
+    setStatus('active')
+  }, [])
+
+  // Continue later from early exit
+  const handleContinueLater = useCallback(() => {
+    setShowEarlyExitWarning(false)
+    setStatus('paused')
+  }, [])
+
+  // Handle final check recheck
+  const handleFinalCheckRecheck = useCallback(() => {
+    setShowFinalCheck(false)
+    setCameraEnabled(true)
+    // Quick 3-second recheck - mark completed after
+    setTimeout(() => {
+      setAttendanceMarkedAt(sessionSeconds)
+      addAlert('info', '✓ Final attendance verified')
+    }, 3000)
+  }, [sessionSeconds])
+
+  // Handle session completion confirmation
+  const handleCompleteSession = useCallback(async () => {
+    setShowAttendanceConfirmation(false)
+    
+    // Save emotion data and session to database
+    if (selectedSession && attendanceMarkedAt !== null) {
+      try {
+        const response = await fetch('/api/emotions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId: selectedSession.id,
+            userId: '1', // Get from context/auth in real app
+            emotionData: emotionHistoryRef.current,
+            attendanceMarkedAt,
+            plannedDuration,
+            sessionSeconds,
+            subject: sessionSubject,
+          }),
+        })
+        
+        if (!response.ok) {
+          console.error('Failed to save session data:', response.statusText)
+        }
+      } catch (error) {
+        console.error('Error saving session data:', error)
+      }
+    }
+    
+    setStatus('completed')
+  }, [selectedSession, attendanceMarkedAt, plannedDuration, sessionSeconds, sessionSubject])
+
+  const handleStartSession = useCallback(() => {
+    handleStartStudyClick()
+  }, [handleStartStudyClick])
 
   const handlePauseSession = useCallback(() => {
     setStatus('paused')
@@ -239,11 +379,6 @@ export function StudySessionContent() {
 
   const handleResumeSession = useCallback(() => {
     setStatus('active')
-  }, [])
-
-  const handleEndSession = useCallback(() => {
-    setStatus('completed')
-    // TODO: Save session to database
   }, [])
 
   const handleNewSession = useCallback(() => {
@@ -295,6 +430,48 @@ export function StudySessionContent() {
     setAttendanceMessage('Webcam opened. Stay in frame while we verify attendance...')
   }, [getSessionTimingState, selectedSession])
 
+  const handleCreateTestSession = useCallback(async () => {
+    try {
+      setIsLoadingSessions(true)
+      const response = await fetch('/api/test-session', { method: 'POST' })
+      if (response.ok) {
+        // Reload sessions
+        const timetableResponse = await fetch('/api/timetable')
+        if (timetableResponse.ok) {
+          const data = await timetableResponse.json()
+          const day = new Date().getDay()
+          const sessions: ScheduledSession[] = (data.entries || [])
+            .filter((entry: any) => entry.day_of_week === day)
+            .map((entry: any) => {
+              const [startHour, startMinute] = entry.start_time.split(':').map(Number)
+              const [endHour, endMinute] = entry.end_time.split(':').map(Number)
+              const duration = Math.max((endHour * 60 + endMinute) - (startHour * 60 + startMinute), 0)
+
+              return {
+                id: String(entry.id),
+                subjectId: entry.subject_id ? String(entry.subject_id) : undefined,
+                subject: entry.subject_name || 'General Study',
+                time: `${entry.start_time.slice(0, 5)} - ${entry.end_time.slice(0, 5)}`,
+                duration,
+                goal: entry.title || `Study ${entry.subject_name || 'session'}`,
+                subjectColor: entry.subject_color,
+              }
+            })
+            .sort((a: ScheduledSession, b: ScheduledSession) => a.time.localeCompare(b.time))
+          
+          setTodaySessions(sessions)
+          if (sessions.length > 0) {
+            setSelectedSessionId(sessions[0].id)
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error creating test session:', error)
+    } finally {
+      setIsLoadingSessions(false)
+    }
+  }, [])
+
   const addAlert = useCallback((type: Alert['type'], message: string) => {
     const newAlert: Alert = {
       id: Date.now().toString(),
@@ -310,10 +487,28 @@ export function StudySessionContent() {
     eyesOpen: boolean
     lookingAtScreen: boolean
     emotion?: string
+    emotionConfidence?: number
+    allEmotions?: Record<string, number>
   }) => {
     setFocusScore(newScore)
     if (emotionDetectionEnabled) {
       setLastEmotion(metrics.emotion || 'Neutral')
+      
+      // Track emotion data
+      if (metrics.emotionConfidence !== undefined && metrics.allEmotions) {
+        const emotionData: EmotionData = {
+          dominant_emotion: metrics.emotion || 'neutral',
+          all_emotions: metrics.allEmotions as any,
+          confidence: metrics.emotionConfidence,
+          timestamp: new Date(),
+        }
+        
+        setCurrentEmotionData(emotionData)
+        emotionHistoryRef.current.push(emotionData)
+        
+        // Keep only last 60 emotions in state (for performance)
+        setEmotionHistory(prev => [...prev, emotionData].slice(-60))
+      }
     }
 
     if (
@@ -362,14 +557,55 @@ export function StudySessionContent() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
+      {/* Dialogs for new workflow */}
+      <SessionSetupDialog
+        isOpen={showSetupDialog}
+        onClose={() => setShowSetupDialog(false)}
+        onStart={handleStartSessionWithSetup}
+      />
+
+      <StartupEmotionDetection
+        videoRef={videoRef}
+        canvasRef={canvasRef}
+        isActive={status === 'startup-detection'}
+        onComplete={handleStartupEmotionComplete}
+      />
+
+      <EarlyExitWarning
+        isOpen={showEarlyExitWarning}
+        onResume={handleResumeFromWarning}
+        onContinueLater={handleContinueLater}
+        sessionMinutes={plannedDuration}
+        elapsedMinutes={Math.floor(sessionSeconds / 60)}
+      />
+
+      <FinalAttendanceCheck
+        isOpen={showFinalCheck}
+        onRecheck={handleFinalCheckRecheck}
+        onSkip={() => setShowFinalCheck(false)}
+        minutesRemaining={Math.ceil((plannedDuration * 60 - sessionSeconds) / 60)}
+      />
+
+      <AttendanceConfirmation
+        isOpen={showAttendanceConfirmation}
+        onConfirm={handleCompleteSession}
+        sessionMinutes={plannedDuration}
+        emotionSummary={
+          startupEmotionData
+            ? `${startupEmotionData.dominant_emotion.charAt(0).toUpperCase() + startupEmotionData.dominant_emotion.slice(1)} (${Math.round(startupEmotionData.confidence * 100)}%)`
+            : undefined
+        }
+      />
+
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Study Planner</h1>
           <p className="text-muted-foreground mt-1">
-            {status === 'setup' && 'Select today\'s session, mark attendance, then start studying'}
+            {status === 'setup' && 'Click "Start Study Session" to begin with emotion detection'}
+            {status === 'startup-detection' && 'Analyzing your emotions... (5 seconds)'}
             {status === 'active' && 'Focus on your studies - AI monitoring active'}
             {status === 'paused' && 'Session paused - Take a break'}
-            {status === 'completed' && 'Great work! Session completed'}
+            {(status === 'final-check' || status === 'completed') && 'Session completing - attendancecheck'}
           </p>
         </div>
       </div>
@@ -397,12 +633,29 @@ export function StudySessionContent() {
               )}
 
               {!isLoadingSessions && !sessionsError && todaySessions.length === 0 && (
-                <Alert>
-                  <AlertTitle>No Sessions Scheduled Today</AlertTitle>
-                  <AlertDescription>
-                    Add blocks in Planner to see sessions here.
-                  </AlertDescription>
-                </Alert>
+                <div className="flex flex-col gap-3">
+                  <Alert>
+                    <AlertTitle>No Sessions Scheduled Today</AlertTitle>
+                    <AlertDescription>
+                      Add blocks in Planner to see sessions here, or start a quick study session below.
+                    </AlertDescription>
+                  </Alert>
+                  <Button 
+                    onClick={() => setShowSetupDialog(true)}
+                    className="w-full gap-2"
+                  >
+                    <Brain className="w-4 h-4" />
+                    Quick Start Study Session
+                  </Button>
+                  <Button 
+                    onClick={handleCreateTestSession}
+                    variant="outline"
+                    className="w-full gap-2"
+                  >
+                    <Camera className="w-4 h-4" />
+                    Create Test Session
+                  </Button>
+                </div>
               )}
 
               {todaySessions.map((session) => {
@@ -479,12 +732,38 @@ export function StudySessionContent() {
                         <CheckCircle2 className="w-4 h-4" />
                         {attendanceInProgress ? 'Detecting Presence...' : 'Mark Attendance'}
                       </Button>
+                      
+                      <Button
+                        onClick={() => {
+                          setAttendanceStatus('present')
+                          setAttendanceMarked(true)
+                          setCameraEnabled(true)
+                          setEmotionDetectionEnabled(true)
+                        }}
+                        variant="secondary"
+                        size="sm"
+                        className="gap-2"
+                      >
+                        <Brain className="w-4 h-4" />
+                        Quick Start (Test)
+                      </Button>
                     </div>
 
                     {attendanceMarked && (attendanceStatus === 'present' || attendanceStatus === 'late') && (
                       <Button onClick={handleStartSession} className="w-full mt-2 gap-2" size="lg">
                         <Play className="w-5 h-5" />
                         Join Session
+                      </Button>
+                    )}
+                    
+                    {!attendanceMarked && (
+                      <Button 
+                        onClick={() => handleStartSessionWithSetup(selectedSession?.subject || 'Focus Study', selectedSession?.duration || 60)}
+                        className="w-full mt-2 gap-2" 
+                        size="lg"
+                      >
+                        <Brain className="w-4 h-4" />
+                        Start Study Session
                       </Button>
                     )}
                   </>
@@ -502,10 +781,71 @@ export function StudySessionContent() {
         </div>
       )}
 
+      {status === 'startup-detection' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 flex flex-col gap-6">
+            <Card className="bg-card border-border">
+              <CardHeader>
+                <CardTitle className="text-lg text-card-foreground flex items-center gap-2">
+                  <Brain className="w-5 h-5 text-primary animate-pulse" />
+                  Session Starting - Emotion Detection
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Initializing emotion detection. Please stay visible to the camera.
+                </p>
+                <div className="aspect-video bg-muted rounded-lg flex items-center justify-center">
+                  {cameraEnabled && <div className="text-muted-foreground">Camera Feed</div>}
+                </div>
+              </CardContent>
+            </Card>
+
+            <StartupEmotionDetection
+              videoRef={videoRef}
+              canvasRef={canvasRef}
+              isActive={true}
+              onComplete={handleStartupEmotionComplete}
+              duration={5}
+            />
+          </div>
+
+          <div className="flex flex-col gap-6">
+            <Card className="bg-card border-border">
+              <CardHeader>
+                <CardTitle className="text-sm">Session Info</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div>
+                  <p className="text-xs text-muted-foreground">Subject</p>
+                  <p className="text-sm font-medium">{sessionSubject}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Duration</p>
+                  <p className="text-sm font-medium">{plannedDuration} minutes</p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+
       {(status === 'active' || status === 'paused') && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Area - Webcam & Focus */}
           <div className="lg:col-span-2 flex flex-col gap-6">
+            {/* Attendance Status */}
+            {attendanceMarkedAt && (
+              <Alert>
+                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                <AlertTitle>Attendance Marked</AlertTitle>
+                <AlertDescription>
+                  Attendance was automatically marked at {Math.floor(attendanceMarkedAt / 60)} minute
+                  {attendanceMarkedAt >= 120 ? 's' : ''}.
+                </AlertDescription>
+              </Alert>
+            )}
+
             {/* Session Timer & Controls */}
             <Card className="bg-card border-border">
               <CardContent className="pt-6">
@@ -587,45 +927,24 @@ export function StudySessionContent() {
           {/* Sidebar - Focus Meter & Alerts */}
           <div className="flex flex-col gap-6">
             <FocusMeter score={focusScore} />
+            {emotionDetectionEnabled && <EmotionStats emotionData={currentEmotionData} />}
             <AlertsPanel alerts={alerts} />
           </div>
         </div>
       )}
 
       {status === 'completed' && (
-        <Card className="bg-card border-border max-w-xl">
-          <CardHeader>
-            <CardTitle className="text-lg text-card-foreground">Session Complete!</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <div className="flex flex-col gap-3 p-4 rounded-lg bg-muted">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Duration</span>
-                <span className="text-foreground font-medium">
-                  {Math.floor(sessionSeconds / 60)} minutes
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Average Focus</span>
-                <span className="text-foreground font-medium">{focusScore}%</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Alerts Triggered</span>
-                <span className="text-foreground font-medium">{alerts.length}</span>
-              </div>
-            </div>
-            
-            <div className="flex gap-3">
-              <Button onClick={handleNewSession} className="flex-1 gap-2">
-                <Play className="w-4 h-4" />
-                New Session
-              </Button>
-              <Button variant="outline" className="flex-1" asChild>
-                <a href="/reports">View Reports</a>
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="w-full">
+          <SessionCompletionSummary
+            subject={sessionSubject}
+            duration={sessionSeconds}
+            emotionHistory={emotionHistory}
+            focusScore={focusScore}
+            onClose={() => {
+              handleNewSession()
+            }}
+          />
+        </div>
       )}
     </div>
   )

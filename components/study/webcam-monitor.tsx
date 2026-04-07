@@ -3,7 +3,9 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Camera, CameraOff, RefreshCw, AlertCircle } from 'lucide-react'
+import { Camera, CameraOff, RefreshCw, AlertCircle, AlertTriangle } from 'lucide-react'
+import { detectEmotionFromImage } from '@/lib/emotion-detection'
+import { audioNotifications, preloadVoices } from '@/lib/audio-notifications'
 
 interface WebcamMonitorProps {
   isActive: boolean
@@ -12,6 +14,8 @@ interface WebcamMonitorProps {
     eyesOpen: boolean
     lookingAtScreen: boolean
     emotion?: string
+    emotionConfidence?: number
+    allEmotions?: Record<string, number>
   }) => void
 }
 
@@ -22,6 +26,12 @@ export function WebcamMonitor({ isActive, onFocusUpdate }: WebcamMonitorProps) {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  
+  // Track consecutive failures for alerts
+  const eyesClosedCountRef = useRef(0)
+  const awayFromScreenCountRef = useRef(0)
+  const eyesAlertTriggeredRef = useRef(false)
+  const awayAlertTriggeredRef = useRef(false)
 
   const getCameraSupportError = useCallback(() => {
     if (typeof window === 'undefined') {
@@ -95,47 +105,121 @@ export function WebcamMonitor({ isActive, onFocusUpdate }: WebcamMonitorProps) {
     return () => stopCamera()
   }, [startCamera, stopCamera])
 
-  // Simulated AI analysis (will be replaced with Python backend calls)
+  // Emotion detection and focus analysis - every 20 seconds
   useEffect(() => {
     if (!isActive || !hasPermission) return
+
+    // Preload voices on first use
+    preloadVoices()
 
     const analyzeFrame = async () => {
       if (!videoRef.current || !canvasRef.current) return
 
       setIsAnalyzing(true)
       
-      // Capture frame to canvas
-      const ctx = canvasRef.current.getContext('2d')
-      if (ctx) {
-        ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height)
+      try {
+        // Capture frame to canvas
+        const ctx = canvasRef.current.getContext('2d')
+        if (ctx) {
+          ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height)
+        }
+
+        // Get image data and detect emotion
+        const imageData = canvasRef.current.toDataURL('image/jpeg')
+        const emotionData = await detectEmotionFromImage(imageData)
+
+        if (emotionData) {
+          // Simulate eye detection and screen detection
+          // In a real implementation, you'd use face/eye detection library
+          const eyesOpen = Math.random() > 0.15
+          const lookingAtScreen = Math.random() > 0.2
+
+          // Map emotions to metrics
+          const metrics = {
+            faceDetected: true,
+            eyesOpen,
+            lookingAtScreen,
+            emotion: emotionData.dominant_emotion,
+            emotionConfidence: emotionData.confidence,
+            allEmotions: emotionData.all_emotions,
+          }
+
+          // Track eyes closed consecutive failures
+          if (!eyesOpen) {
+            eyesClosedCountRef.current += 1
+            // Alert after ~30 seconds (1-2 checks at 20-second intervals)
+            if (eyesClosedCountRef.current >= 2 && !eyesAlertTriggeredRef.current) {
+              eyesAlertTriggeredRef.current = true
+              audioNotifications.eyesClosed()
+            }
+          } else {
+            eyesClosedCountRef.current = 0
+            eyesAlertTriggeredRef.current = false
+          }
+
+          // Track away from screen consecutive failures
+          if (!lookingAtScreen) {
+            awayFromScreenCountRef.current += 1
+            // Alert after ~30 seconds
+            if (awayFromScreenCountRef.current >= 2 && !awayAlertTriggeredRef.current) {
+              awayAlertTriggeredRef.current = true
+              audioNotifications.faceMissing()
+            }
+          } else {
+            awayFromScreenCountRef.current = 0
+            awayAlertTriggeredRef.current = false
+          }
+
+          // Calculate focus score based on emotion and metrics
+          let score = 100
+          
+          // Adjust score based on emotion
+          switch (emotionData.dominant_emotion.toLowerCase()) {
+            case 'happy':
+            case 'surprise':
+              score = 95 // Good emotions for studying
+              break
+            case 'neutral':
+              score = 85 // Neutral is acceptable
+              break
+            case 'sad':
+              score = 60 // Low concentration
+              break
+            case 'angry':
+              score = 50 // Distracted
+              break
+            case 'fear':
+              score = 40 // Very distracted
+              break
+            case 'disgust':
+              score = 55 // Low focus
+              break
+          }
+
+          if (!eyesOpen) score -= 25
+          if (!lookingAtScreen) score -= 15
+
+          score = Math.max(0, Math.min(100, score))
+
+          onFocusUpdate(score, metrics)
+        }
+      } catch (error) {
+        console.error('Frame analysis error:', error)
+      } finally {
+        setIsAnalyzing(false)
       }
-
-      // TODO: Send frame to Python AI backend for analysis
-      // For now, simulate with random values
-      const simulatedMetrics = {
-        faceDetected: Math.random() > 0.1,
-        eyesOpen: Math.random() > 0.15,
-        lookingAtScreen: Math.random() > 0.2,
-        emotion: ['focused', 'neutral', 'tired', 'distracted'][Math.floor(Math.random() * 4)],
-      }
-
-      // Calculate focus score based on metrics
-      let score = 100
-      if (!simulatedMetrics.faceDetected) score -= 50
-      if (!simulatedMetrics.eyesOpen) score -= 30
-      if (!simulatedMetrics.lookingAtScreen) score -= 20
-      if (simulatedMetrics.emotion === 'distracted') score -= 10
-      if (simulatedMetrics.emotion === 'tired') score -= 5
-
-      score = Math.max(0, Math.min(100, score))
-
-      onFocusUpdate(score, simulatedMetrics)
-      setIsAnalyzing(false)
     }
 
-    // Analyze every 2 seconds
-    const interval = setInterval(analyzeFrame, 2000)
-    return () => clearInterval(interval)
+    // Analyze every 20 seconds (changed from 3 seconds)
+    const interval = setInterval(analyzeFrame, 20000)
+    
+    // Initial analysis after 2 seconds
+    const timeout = setTimeout(analyzeFrame, 2000)
+    
+    return () => {
+      clearInterval(interval)
+      clearTimeout(timeout)
+    }
   }, [isActive, hasPermission, onFocusUpdate])
 
   return (
