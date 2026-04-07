@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
 import { getCurrentUser } from '@/lib/auth'
 import { query } from '@/lib/db'
 
@@ -10,15 +9,15 @@ type DailyAnalyticsRow = {
   sessions: number
 }
 
+type PgErrorWithCode = Error & { code?: string }
+
+function isMissingAvgFocusScoreColumn(error: unknown): boolean {
+  const err = error as PgErrorWithCode
+  return err?.code === '42703' && (err?.message || '').includes('avg_focus_score')
+}
+
 export async function GET(request: NextRequest) {
   try {
-    const cookieStore = await cookies()
-    const token = cookieStore.get('auth_token')?.value
-
-    if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
     const user = await getCurrentUser()
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -29,19 +28,42 @@ export async function GET(request: NextRequest) {
     const days = range === 'all' ? 365 : Math.min(Math.max(Number.parseInt(range, 10) || 30, 7), 365)
     const goalMinutes = user.study_preferences?.daily_study_goal_minutes || 120
 
-    const rows = await query<DailyAnalyticsRow>(
-      `SELECT
-         DATE(start_time)::text AS study_date,
-         COALESCE(SUM(COALESCE(actual_duration_minutes, planned_duration_minutes, 0)), 0)::int AS study_minutes,
-         COALESCE(ROUND(AVG(COALESCE(avg_focus_score, 0))::numeric, 2), 0)::float8 AS avg_focus_score,
-         COUNT(*)::int AS sessions
-       FROM study_sessions
-       WHERE user_id = $1
-         AND start_time >= CURRENT_DATE - (($2::int - 1) * INTERVAL '1 day')
-       GROUP BY DATE(start_time)
-       ORDER BY DATE(start_time) ASC`,
-      [user.id, days]
-    )
+    let rows: DailyAnalyticsRow[] = []
+
+    try {
+      rows = await query<DailyAnalyticsRow>(
+        `SELECT
+           DATE(start_time)::text AS study_date,
+           COALESCE(SUM(COALESCE(actual_duration_minutes, planned_duration_minutes, 0)), 0)::int AS study_minutes,
+           COALESCE(ROUND(AVG(COALESCE(avg_focus_score, 0))::numeric, 2), 0)::float8 AS avg_focus_score,
+           COUNT(*)::int AS sessions
+         FROM study_sessions
+         WHERE user_id = $1
+           AND start_time >= CURRENT_DATE - (($2::int - 1) * INTERVAL '1 day')
+         GROUP BY DATE(start_time)
+         ORDER BY DATE(start_time) ASC`,
+        [user.id, days]
+      )
+    } catch (error) {
+      if (!isMissingAvgFocusScoreColumn(error)) {
+        throw error
+      }
+
+      // Legacy schema fallback when avg_focus_score does not exist on study_sessions.
+      rows = await query<DailyAnalyticsRow>(
+        `SELECT
+           DATE(start_time)::text AS study_date,
+           COALESCE(SUM(COALESCE(actual_duration_minutes, planned_duration_minutes, 0)), 0)::int AS study_minutes,
+           0::float8 AS avg_focus_score,
+           COUNT(*)::int AS sessions
+         FROM study_sessions
+         WHERE user_id = $1
+           AND start_time >= CURRENT_DATE - (($2::int - 1) * INTERVAL '1 day')
+         GROUP BY DATE(start_time)
+         ORDER BY DATE(start_time) ASC`,
+        [user.id, days]
+      )
+    }
 
     const daily = rows.map((row) => {
       const productivityScore = Math.min(

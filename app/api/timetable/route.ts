@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db'
-import { verifyToken } from '@/lib/auth'
-import { cookies } from 'next/headers'
+import { getCurrentUser } from '@/lib/auth'
 
 type PgErrorWithCode = Error & { code?: string }
 
-async function getTimetableEntries(userId: string) {
+async function getTimetableEntries(userId: number) {
   try {
     const entries = await query<{
       id: number
@@ -59,7 +58,7 @@ async function getTimetableEntries(userId: string) {
 }
 
 async function createTimetableEntry(
-  userId: string,
+  userId: number,
   subjectId: number | null,
   dayOfWeek: number,
   startTime: string,
@@ -100,19 +99,13 @@ async function createTimetableEntry(
 
 export async function GET() {
   try {
-    const cookieStore = await cookies()
-    const token = cookieStore.get('auth_token')?.value
-
-    if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const user = await getCurrentUser()
+    if (!user) {
+      // Return an empty timetable for unauthenticated requests to avoid noisy client retries.
+      return NextResponse.json({ entries: [] })
     }
 
-    const payload = await verifyToken(token)
-    if (!payload) {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
-    }
-
-    const entries = await getTimetableEntries(payload.userId)
+    const entries = await getTimetableEntries(user.id)
 
     return NextResponse.json({ entries })
   } catch (error) {
@@ -126,16 +119,9 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = await cookies()
-    const token = cookieStore.get('auth_token')?.value
-
-    if (!token) {
+    const user = await getCurrentUser()
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const payload = await verifyToken(token)
-    if (!payload) {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
     }
 
     const body = await request.json()
@@ -149,7 +135,7 @@ export async function POST(request: NextRequest) {
     }
 
     const entry = await createTimetableEntry(
-      payload.userId,
+      user.id,
       subject_id ?? null,
       day_of_week,
       start_time,

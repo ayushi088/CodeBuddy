@@ -2,6 +2,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser, updateUser } from '@/lib/auth'
 import { z } from 'zod'
 
+function isValidTimetableUrl(value: string) {
+  if (!value) return false
+  if (value.startsWith('/')) return true
+
+  try {
+    new URL(value)
+    return true
+  } catch {
+    return false
+  }
+}
+
 const updateMeSchema = z.object({
   full_name: z.string().min(2).max(255).optional(),
   avatar_url: z.string().url().nullable().optional(),
@@ -12,7 +24,7 @@ const updateMeSchema = z.object({
   institution_name: z.string().max(255).nullable().optional(),
   course_start_date: z.string().nullable().optional(),
   course_end_date: z.string().nullable().optional(),
-  timetable_url: z.string().url().nullable().optional(),
+  timetable_url: z.string().refine(isValidTimetableUrl, 'Timetable URL must be a valid URL or app path').nullable().optional(),
   study_preferences: z.object({
     preferred_study_time: z.string().min(1),
     preferred_subject_ids: z.array(z.number().int().positive()),

@@ -260,30 +260,45 @@ export function ProfileContent() {
     const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
     const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET
 
-    if (!cloudName || !uploadPreset) {
-      alert('Cloudinary is not configured. Set NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME and NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET.')
-      event.target.value = ''
-      return
-    }
-
     setIsUploadingTimetable(true)
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('upload_preset', uploadPreset)
-      formData.append('folder', 'studybuddy/timetables')
+      let uploadedUrl = ''
 
-      const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`, {
-        method: 'POST',
-        body: formData,
-      })
+      if (cloudName && uploadPreset) {
+        const cloudinaryData = new FormData()
+        cloudinaryData.append('file', file)
+        cloudinaryData.append('upload_preset', uploadPreset)
+        cloudinaryData.append('folder', 'studybuddy/timetables')
 
-      const uploadData = await uploadRes.json()
-      if (!uploadRes.ok || !uploadData.secure_url) {
-        throw new Error(uploadData.error?.message || 'Failed to upload timetable')
+        const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`, {
+          method: 'POST',
+          body: cloudinaryData,
+        })
+
+        const uploadData = await uploadRes.json()
+        if (!uploadRes.ok || !uploadData.secure_url) {
+          throw new Error(uploadData.error?.message || 'Failed to upload timetable')
+        }
+
+        uploadedUrl = uploadData.secure_url
+      } else {
+        const localUploadData = new FormData()
+        localUploadData.append('file', file)
+
+        const uploadRes = await fetch('/api/profile/timetable-upload', {
+          method: 'POST',
+          body: localUploadData,
+        })
+
+        const uploadData = await uploadRes.json()
+        if (!uploadRes.ok || !uploadData.url) {
+          throw new Error(uploadData.error || 'Failed to upload timetable')
+        }
+
+        uploadedUrl = uploadData.url
       }
 
-      setProfileData(prev => ({ ...prev, timetableUrl: uploadData.secure_url }))
+      setProfileData(prev => ({ ...prev, timetableUrl: uploadedUrl }))
       alert('Timetable uploaded. Click Save Changes to persist it.')
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Failed to upload timetable')
@@ -491,7 +506,7 @@ export function ProfileContent() {
                 </div>
 
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="timetableUpload">Timetable Upload (Cloudinary)</Label>
+                  <Label htmlFor="timetableUpload">Timetable Upload</Label>
                   <div className="flex items-center gap-2">
                     <Input
                       id="timetableUpload"
@@ -514,6 +529,9 @@ export function ProfileContent() {
                       View uploaded timetable
                     </a>
                   )}
+                  <p className="text-xs text-muted-foreground">
+                    Uses Cloudinary when configured, otherwise stores locally in this app.
+                  </p>
                 </div>
               </div>
 
