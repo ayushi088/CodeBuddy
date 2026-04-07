@@ -39,10 +39,18 @@ const fetcher = async (url: string) => {
   return data.user
 }
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const { data: user, error, isLoading, mutate } = useSWR<User | null>('/api/auth/me', fetcher, {
+interface AuthProviderProps {
+  children: ReactNode
+  initialUser?: User | null
+}
+
+export function AuthProvider({ children, initialUser }: AuthProviderProps) {
+  const shouldFetchUser = initialUser === undefined
+  const { data: user, isLoading, mutate } = useSWR<User | null>('/api/auth/me', fetcher, {
+    fallbackData: initialUser,
     revalidateOnFocus: false,
     shouldRetryOnError: false,
+    revalidateOnMount: shouldFetchUser,
   })
   const [isAuthLoading, setIsAuthLoading] = useState(false)
 

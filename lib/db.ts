@@ -66,10 +66,6 @@ export async function query<T>(text: string, params?: unknown[]): Promise<T[]> {
     try {
       const start = Date.now()
       const res = await pool.query(text, params)
-      const duration = Date.now() - start
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Executed query', { text: text.substring(0, 50), duration, rows: res.rowCount, attempt })
-      }
       return res.rows as T[]
     } catch (error) {
       lastError = error

@@ -18,13 +18,38 @@ interface WebcamMonitorProps {
 export function WebcamMonitor({ isActive, onFocusUpdate }: WebcamMonitorProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
   const [hasPermission, setHasPermission] = useState<boolean | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
 
+  const getCameraSupportError = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return 'Camera is only available in the browser.'
+    }
+
+    if (!window.isSecureContext) {
+      return 'Camera access requires HTTPS or localhost. Open this app on localhost to use the webcam.'
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      return 'Your browser does not support webcam access.'
+    }
+
+    return null
+  }, [])
+
   const startCamera = useCallback(async () => {
     try {
       setError(null)
+
+      const supportError = getCameraSupportError()
+      if (supportError) {
+        setHasPermission(false)
+        setError(supportError)
+        return
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           width: { ideal: 640 },
@@ -32,23 +57,35 @@ export function WebcamMonitor({ isActive, onFocusUpdate }: WebcamMonitorProps) {
           facingMode: 'user',
         },
       })
+      streamRef.current = stream
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream
-        await videoRef.current.play()
+        try {
+          await videoRef.current.play()
+        } catch {
+          // The stream is active even if autoplay is rejected; keep it visible.
+        }
         setHasPermission(true)
       }
     } catch (err) {
       console.error('Camera error:', err)
       setHasPermission(false)
-      setError('Unable to access camera. Please grant permission.')
+      setError(err instanceof DOMException && err.name === 'NotAllowedError'
+        ? 'Camera permission was denied in the browser.'
+        : 'Unable to access camera. Please check browser permissions and reload the page.')
     }
-  }, [])
+  }, [getCameraSupportError])
 
   const stopCamera = useCallback(() => {
-    if (videoRef.current?.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream
+    const stream = streamRef.current ?? (videoRef.current?.srcObject as MediaStream | null)
+    if (stream) {
       stream.getTracks().forEach(track => track.stop())
+    }
+
+    streamRef.current = null
+
+    if (videoRef.current) {
       videoRef.current.srcObject = null
     }
   }, [])

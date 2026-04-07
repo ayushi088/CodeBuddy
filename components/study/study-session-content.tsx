@@ -123,66 +123,77 @@ export function StudySessionContent() {
       </div>
 
       {status === 'setup' && (
-        <Card className="bg-card border-border max-w-xl">
-          <CardHeader>
-            <CardTitle className="text-lg text-card-foreground">Start a New Session</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="subject">Subject</Label>
-              <Select value={selectedSubject} onValueChange={setSelectedSubject}>
-                <SelectTrigger id="subject" className="bg-input border-border">
-                  <SelectValue placeholder="Select a subject" />
-                </SelectTrigger>
-                <SelectContent>
-                  {subjects.map((subject) => (
-                    <SelectItem key={subject.id} value={subject.id}>
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="w-3 h-3 rounded-full"
-                          style={{ backgroundColor: subject.color }}
-                        />
-                        {subject.name}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="duration">Planned Duration (minutes)</Label>
-              <Input
-                id="duration"
-                type="number"
-                min={5}
-                max={240}
-                value={plannedDuration}
-                onChange={(e) => setPlannedDuration(Number(e.target.value))}
-                className="bg-input border-border"
-              />
-            </div>
-
-            <div className="flex items-center justify-between p-3 rounded-lg bg-muted">
-              <div className="flex items-center gap-2">
-                <Camera className="w-5 h-5 text-muted-foreground" />
-                <span className="text-sm text-foreground">Enable webcam monitoring</span>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <Card className="bg-card border-border lg:col-span-1 max-w-xl">
+            <CardHeader>
+              <CardTitle className="text-lg text-card-foreground">Start a New Session</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="subject">Subject</Label>
+                <Select value={selectedSubject} onValueChange={setSelectedSubject}>
+                  <SelectTrigger id="subject" className="bg-input border-border">
+                    <SelectValue placeholder="Select a subject" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {subjects.map((subject) => (
+                      <SelectItem key={subject.id} value={subject.id}>
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: subject.color }}
+                          />
+                          {subject.name}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <Button
-                variant={cameraEnabled ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setCameraEnabled(!cameraEnabled)}
-              >
-                {cameraEnabled ? 'Enabled' : 'Disabled'}
-              </Button>
-            </div>
 
-            <Button onClick={handleStartSession} className="w-full mt-2 gap-2" size="lg">
-              <Play className="w-5 h-5" />
-              Start Session
-            </Button>
-          </CardContent>
-        </Card>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="duration">Planned Duration (minutes)</Label>
+                <Input
+                  id="duration"
+                  type="number"
+                  min={5}
+                  max={240}
+                  value={plannedDuration}
+                  onChange={(e) => setPlannedDuration(Number(e.target.value))}
+                  className="bg-input border-border"
+                />
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-lg bg-muted">
+                <div className="flex items-center gap-2">
+                  <Camera className="w-5 h-5 text-muted-foreground" />
+                  <span className="text-sm text-foreground">Enable webcam monitoring</span>
+                </div>
+                <Button
+                  variant={cameraEnabled ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setCameraEnabled(!cameraEnabled)}
+                >
+                  {cameraEnabled ? 'Enabled' : 'Disabled'}
+                </Button>
+              </div>
+
+              <Button onClick={handleStartSession} className="w-full mt-2 gap-2" size="lg">
+                <Play className="w-5 h-5" />
+                Start Session
+              </Button>
+            </CardContent>
+          </Card>
+
+          <div className="lg:col-span-2">
+            {cameraEnabled && (
+              <WebcamMonitor
+                isActive={false}
+                onFocusUpdate={handleFocusUpdate}
+              />
+            )}
+          </div>
+        </div>
       )}
 
       {(status === 'active' || status === 'paused') && (

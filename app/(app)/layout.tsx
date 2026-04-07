@@ -15,7 +15,7 @@ export default async function AppLayout({
   }
 
   return (
-    <AuthProvider>
+    <AuthProvider initialUser={user}>
       <div className="min-h-screen bg-background">
         <Sidebar />
         <main className="pl-64">
