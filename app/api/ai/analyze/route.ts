@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const AI_ENGINE_URL = process.env.AI_ENGINE_URL || 'http://localhost:8000'
+const AI_ENGINE_URL = process.env.AI_ENGINE_URL || 'http://127.0.0.1:8000'
+const ENABLE_SIMULATION_FALLBACK = process.env.ENABLE_SIMULATION_FALLBACK === 'true'
 let hasLoggedAiEngineUnavailable = false
 
 export async function POST(request: NextRequest) {
@@ -29,31 +30,59 @@ export async function POST(request: NextRequest) {
         }),
       })
     } catch {
-      if (!hasLoggedAiEngineUnavailable) {
-        console.warn(
-          `AI engine unavailable at ${AI_ENGINE_URL}. Using simulated emotion analysis.`
-        )
-        hasLoggedAiEngineUnavailable = true
+      if (ENABLE_SIMULATION_FALLBACK) {
+        if (!hasLoggedAiEngineUnavailable) {
+          console.warn(
+            `AI engine unavailable at ${AI_ENGINE_URL}. Using simulated emotion analysis.`
+          )
+          hasLoggedAiEngineUnavailable = true
+        }
+        return NextResponse.json(getSimulatedAnalysis())
       }
-      return NextResponse.json(getSimulatedAnalysis())
+
+      return NextResponse.json(
+        {
+          error: 'AI engine unavailable',
+          ai_source: 'unavailable',
+        },
+        { status: 503 }
+      )
     }
 
     if (!response.ok) {
-      // If AI engine is not available, return simulated data for demo
-      if (response.status === 502 || response.status === 503 || response.status === 504) {
+      if (ENABLE_SIMULATION_FALLBACK && (response.status === 502 || response.status === 503 || response.status === 504)) {
         return NextResponse.json(getSimulatedAnalysis())
       }
-      throw new Error(`AI Engine error: ${response.status}`)
+
+      const detail = await response.text().catch(() => '')
+      return NextResponse.json(
+        {
+          error: 'AI engine returned an error',
+          ai_source: 'model',
+          status: response.status,
+          detail,
+        },
+        { status: response.status }
+      )
     }
 
     hasLoggedAiEngineUnavailable = false
 
     const data = await response.json()
-    return NextResponse.json(data)
+    return NextResponse.json({ ...data, simulated: false, ai_source: 'model' })
   } catch (error) {
     console.error('AI Analysis unexpected error:', error)
-    // Return simulated data if AI engine is unavailable
-    return NextResponse.json(getSimulatedAnalysis())
+    if (ENABLE_SIMULATION_FALLBACK) {
+      return NextResponse.json(getSimulatedAnalysis())
+    }
+
+    return NextResponse.json(
+      {
+        error: 'Unexpected AI analysis error',
+        ai_source: 'error',
+      },
+      { status: 500 }
+    )
   }
 }
 
@@ -83,5 +112,6 @@ function getSimulatedAnalysis() {
     liveness_check: true,
     blink_detected: Math.random() < 0.15,
     simulated: true,
+    ai_source: 'simulated',
   }
 }

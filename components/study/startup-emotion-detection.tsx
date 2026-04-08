@@ -8,8 +8,8 @@ import { detectEmotionFromImage } from '@/lib/emotion-detection'
 import type { EmotionData } from '@/lib/emotion-detection'
 
 interface StartupEmotionDetectionProps {
-  videoRef: React.RefObject<HTMLVideoElement>
-  canvasRef: React.RefObject<HTMLCanvasElement>
+  videoRef: React.RefObject<HTMLVideoElement | null>
+  canvasRef: React.RefObject<HTMLCanvasElement | null>
   isActive: boolean
   onComplete: (emotionData: EmotionData | null) => void
   duration?: number // seconds
@@ -59,13 +59,15 @@ export function StartupEmotionDetection({
           setMessage(
             `Detected: ${emotionData.dominant_emotion.charAt(0).toUpperCase() + emotionData.dominant_emotion.slice(1)} (${Math.round(emotionData.confidence * 100)}%)`
           )
+        } else {
+          setMessage('Model unavailable. Start the Python AI API to enable emotion detection.')
         }
       } catch (error) {
         console.error('Startup emotion detection error:', error)
       }
     }
 
-    // Run analysis every second for the duration
+    // Run analysis every 1 second for the duration
     intervalRef.current = setInterval(() => {
       elapsedTime += analysisInterval
       setProgress((elapsedTime / (duration * 1000)) * 100)

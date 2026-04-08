@@ -36,6 +36,11 @@ export function EmotionStats({ emotionData, showDetails = true }: EmotionStatsPr
         return '😢'
       case 'angry':
         return '😠'
+      case 'confused':
+        return '😕'
+      case 'shocked':
+      case 'shock':
+        return '😲'
       case 'fear':
         return '😨'
       case 'surprise':
@@ -53,6 +58,8 @@ export function EmotionStats({ emotionData, showDetails = true }: EmotionStatsPr
     neutral: { label: 'Neutral', level: 'Medium', color: 'bg-gray-500' },
     sad: { label: 'Sad', level: 'Low', color: 'bg-red-500' },
     angry: { label: 'Angry', level: 'Low', color: 'bg-orange-500' },
+    confused: { label: 'Confused', level: 'Low', color: 'bg-violet-500' },
+    shocked: { label: 'Shocked', level: 'High', color: 'bg-blue-500' },
     fear: { label: 'Fear', level: 'Low', color: 'bg-purple-500' },
     disgust: { label: 'Disgust', level: 'Low', color: 'bg-yellow-600' },
     surprise: { label: 'Surprise', level: 'High', color: 'bg-blue-500' },
@@ -118,6 +125,8 @@ export function EmotionStats({ emotionData, showDetails = true }: EmotionStatsPr
                   ? 95
                   : emotionData.dominant_emotion === 'neutral'
                     ? 70
+                    : emotionData.dominant_emotion === 'shocked' || emotionData.dominant_emotion === 'surprise'
+                      ? 55
                     : 40
               }
               className="flex-1 h-2"
@@ -127,6 +136,8 @@ export function EmotionStats({ emotionData, showDetails = true }: EmotionStatsPr
                 ? 'Optimal'
                 : emotionData.dominant_emotion === 'neutral'
                   ? 'Good'
+                  : emotionData.dominant_emotion === 'shocked' || emotionData.dominant_emotion === 'surprise'
+                    ? 'Average'
                   : 'Low'}
             </span>
           </div>

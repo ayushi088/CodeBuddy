@@ -61,6 +61,12 @@ export function StudySessionContent() {
   const [sessionSeconds, setSessionSeconds] = useState(0)
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [lastEmotion, setLastEmotion] = useState('N/A')
+  const [liveMetrics, setLiveMetrics] = useState({
+    faceDetected: false,
+    eyesOpen: false,
+    lookingAtScreen: false,
+    emotionConfidence: 0,
+  })
   
   // Emotion tracking
   const [emotionHistory, setEmotionHistory] = useState<EmotionData[]>([])
@@ -265,6 +271,10 @@ export function StudySessionContent() {
     setAttendanceMarkedAt(null)
     setFinalCheckTriggered(false)
     emotionHistoryRef.current = []
+  }, [])
+
+  const handleSessionTick = useCallback(() => {
+    setSessionSeconds((currentSeconds) => currentSeconds + 1)
   }, [])
 
   // Handle completion of startup emotion detection
@@ -491,6 +501,12 @@ export function StudySessionContent() {
     allEmotions?: Record<string, number>
   }) => {
     setFocusScore(newScore)
+    setLiveMetrics({
+      faceDetected: metrics.faceDetected,
+      eyesOpen: metrics.eyesOpen,
+      lookingAtScreen: metrics.lookingAtScreen,
+      emotionConfidence: metrics.emotionConfidence ?? 0,
+    })
     if (emotionDetectionEnabled) {
       setLastEmotion(metrics.emotion || 'Neutral')
       
@@ -853,7 +869,7 @@ export function StudySessionContent() {
                   <SessionTimer
                     isRunning={status === 'active'}
                     seconds={sessionSeconds}
-                    onTick={() => setSessionSeconds(s => s + 1)}
+                    onTick={handleSessionTick}
                     plannedMinutes={plannedDuration}
                   />
                   <div className="flex items-center gap-2">
@@ -904,19 +920,19 @@ export function StudySessionContent() {
                   <MetricCard
                     icon={Eye}
                     label="Eyes Status"
-                    value="Open"
-                    color="success"
+                    value={liveMetrics.faceDetected ? (liveMetrics.eyesOpen ? 'Open' : 'Closed') : 'No face'}
+                    color={liveMetrics.faceDetected ? (liveMetrics.eyesOpen ? 'success' : 'warning') : 'destructive'}
                   />
                   <MetricCard
                     icon={Camera}
                     label="Face Detection"
-                    value="Detected"
-                    color="success"
+                    value={liveMetrics.faceDetected ? 'Detected' : 'Missing'}
+                    color={liveMetrics.faceDetected ? 'success' : 'destructive'}
                   />
                   <MetricCard
                     icon={Smile}
                     label="Emotion"
-                    value={emotionDetectionEnabled ? lastEmotion : 'Disabled'}
+                    value={emotionDetectionEnabled ? `${lastEmotion} ${liveMetrics.emotionConfidence ? `(${Math.round(liveMetrics.emotionConfidence * 100)}%)` : ''}`.trim() : 'Disabled'}
                     color="primary"
                   />
                 </div>

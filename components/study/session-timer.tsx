@@ -33,6 +33,7 @@ export function SessionTimer({ isRunning, seconds, onTick, plannedMinutes }: Ses
   const progress = Math.min((seconds / (plannedMinutes * 60)) * 100, 100)
   const remainingSeconds = Math.max((plannedMinutes * 60) - seconds, 0)
   const isOvertime = seconds > (plannedMinutes * 60)
+  const progressLabel = `${progress < 1 && progress > 0 ? progress.toFixed(1) : Math.round(progress)}% of planned time`
 
   return (
     <div className="flex items-center gap-6">
@@ -59,7 +60,7 @@ export function SessionTimer({ isRunning, seconds, onTick, plannedMinutes }: Ses
           className={`h-2 ${isOvertime ? '[&>div]:bg-warning' : ''}`} 
         />
         <p className="text-xs text-muted-foreground mt-1">
-          {Math.round(progress)}% of planned time
+          {progressLabel}
         </p>
       </div>
     </div>

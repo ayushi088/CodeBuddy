@@ -105,7 +105,7 @@ export function WebcamMonitor({ isActive, onFocusUpdate }: WebcamMonitorProps) {
     return () => stopCamera()
   }, [startCamera, stopCamera])
 
-  // Emotion detection and focus analysis - every 20 seconds
+  // Emotion detection and focus analysis - every 1 second
   useEffect(() => {
     if (!isActive || !hasPermission) return
 
@@ -129,6 +129,8 @@ export function WebcamMonitor({ isActive, onFocusUpdate }: WebcamMonitorProps) {
         const emotionData = await detectEmotionFromImage(imageData)
 
         if (emotionData) {
+          setError(null)
+
           // Simulate eye detection and screen detection
           // In a real implementation, you'd use face/eye detection library
           const eyesOpen = Math.random() > 0.15
@@ -177,10 +179,15 @@ export function WebcamMonitor({ isActive, onFocusUpdate }: WebcamMonitorProps) {
           switch (emotionData.dominant_emotion.toLowerCase()) {
             case 'happy':
             case 'surprise':
+            case 'shocked':
+            case 'shock':
               score = 95 // Good emotions for studying
               break
             case 'neutral':
               score = 85 // Neutral is acceptable
+              break
+            case 'confused':
+              score = 65 // Needs re-focus
               break
             case 'sad':
               score = 60 // Low concentration
@@ -202,6 +209,8 @@ export function WebcamMonitor({ isActive, onFocusUpdate }: WebcamMonitorProps) {
           score = Math.max(0, Math.min(100, score))
 
           onFocusUpdate(score, metrics)
+        } else {
+          setError('Emotion model is unavailable. Start the Python AI API on port 8000.')
         }
       } catch (error) {
         console.error('Frame analysis error:', error)
@@ -210,11 +219,11 @@ export function WebcamMonitor({ isActive, onFocusUpdate }: WebcamMonitorProps) {
       }
     }
 
-    // Analyze every 20 seconds (changed from 3 seconds)
-    const interval = setInterval(analyzeFrame, 20000)
+    // Analyze every 1 second for near real-time mood updates
+    const interval = setInterval(analyzeFrame, 1000)
     
-    // Initial analysis after 2 seconds
-    const timeout = setTimeout(analyzeFrame, 2000)
+    // Initial analysis after 1 second
+    const timeout = setTimeout(analyzeFrame, 1000)
     
     return () => {
       clearInterval(interval)
@@ -299,6 +308,15 @@ export function WebcamMonitor({ isActive, onFocusUpdate }: WebcamMonitorProps) {
             </div>
           )}
         </div>
+
+        {hasPermission && error && (
+          <div className="px-4 pb-4">
+            <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
+              <AlertTriangle className="mt-0.5 h-4 w-4 text-warning" />
+              <p>{error}</p>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   )

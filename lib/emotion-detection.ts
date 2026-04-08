@@ -1,13 +1,19 @@
 interface AnalyzeApiResponse {
   emotion?: string
   emotion_confidence?: number
+  simulated?: boolean
+  ai_source?: string
+  error?: string
 }
 
 interface EmotionStats {
+  [key: string]: number
   sad: number
   happy: number
   neutral: number
   angry: number
+  confused: number
+  shocked: number
   fear: number
   disgust: number
   surprise: number
@@ -19,6 +25,8 @@ export interface EmotionData {
   confidence: number
   timestamp: Date
 }
+
+const ALLOW_CLIENT_MOCK_EMOTION = process.env.NEXT_PUBLIC_ALLOW_CLIENT_MOCK_EMOTION === 'true'
 
 // Kept for backward compatibility; detection now runs through server API.
 export const initializeEmotionDetection = () => {
@@ -45,16 +53,26 @@ export const detectEmotionFromImage = async (imageData: string | Blob): Promise<
     })
 
     if (!response.ok) {
-      return generateMockEmotionData()
+      const responseBody = await response.text().catch(() => '')
+      console.error('Emotion API request failed:', response.status, responseBody)
+      return ALLOW_CLIENT_MOCK_EMOTION ? generateMockEmotionData() : null
     }
 
     const result = (await response.json()) as AnalyzeApiResponse
+
+    // Accept only real model output by default.
+    if (result.simulated || result.ai_source !== 'model') {
+      console.warn('Emotion API returned non-model response:', result)
+      return ALLOW_CLIENT_MOCK_EMOTION ? generateMockEmotionData() : null
+    }
 
     const emotionMap: { [key: string]: number } = {
       sad: 0,
       happy: 0,
       neutral: 0,
       angry: 0,
+      confused: 0,
+      shocked: 0,
       fear: 0,
       disgust: 0,
       surprise: 0,
@@ -77,7 +95,7 @@ export const detectEmotionFromImage = async (imageData: string | Blob): Promise<
     }
   } catch (error) {
     console.error('Error detecting emotion:', error)
-    return generateMockEmotionData()
+    return ALLOW_CLIENT_MOCK_EMOTION ? generateMockEmotionData() : null
   }
 }
 
@@ -102,13 +120,16 @@ const blobToDataUrl = (blob: Blob): Promise<string> => {
  */
 export const generateMockEmotionData = (): EmotionData => {
   const emotions = ['sad', 'happy', 'neutral', 'angry', 'fear', 'disgust', 'surprise']
-  const dominant = emotions[Math.floor(Math.random() * emotions.length)]
+  const extendedEmotions = [...emotions, 'confused', 'shocked']
+  const dominant = extendedEmotions[Math.floor(Math.random() * extendedEmotions.length)]
 
   const emotionStats: EmotionStats = {
     sad: Math.floor(Math.random() * 100),
     happy: Math.floor(Math.random() * 100),
     neutral: Math.floor(Math.random() * 100),
     angry: Math.floor(Math.random() * 100),
+    confused: Math.floor(Math.random() * 100),
+    shocked: Math.floor(Math.random() * 100),
     fear: Math.floor(Math.random() * 100),
     disgust: Math.floor(Math.random() * 100),
     surprise: Math.floor(Math.random() * 100),
@@ -140,9 +161,13 @@ export const getEmotionLevel = (emotion: string): 'low' | 'medium' | 'high' => {
       return 'high'
     case 'sad':
     case 'angry':
+    case 'confused':
     case 'fear':
     case 'disgust':
       return 'low'
+    case 'shocked':
+    case 'surprise':
+      return 'high'
     case 'neutral':
     default:
       return 'medium'
@@ -163,6 +188,11 @@ export const getEmotionColor = (emotion: string): string => {
       return '#ef4444' // red
     case 'disgust':
       return '#f59e0b' // amber
+    case 'confused':
+      return '#8b5cf6' // violet
+    case 'shocked':
+    case 'surprise':
+      return '#3b82f6' // blue
     case 'neutral':
     default:
       return '#6b7280' // gray
