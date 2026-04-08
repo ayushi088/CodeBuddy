@@ -9,6 +9,7 @@ next.user-config.*
 
 # Environment variables
 .env
+.env.local
 .env.*
 !.env.example
 
@@ -16,3 +17,26 @@ next.user-config.*
 node_modules
 .next/
 .DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# StudyBuddy python-ai runtime outputs
+python-ai/__pycache__/
+python-ai/utils/__pycache__/
+
+# Optional local model assets
+python-ai/model/*.onnx
+python-ai/model/*.h5
+python-ai/model/*.ckpt
