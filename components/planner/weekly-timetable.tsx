@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -12,6 +12,8 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Plus, Calendar, ChevronLeft, ChevronRight, Play, CheckCircle2 } from 'lucide-react'
 import { useSubjects } from '@/hooks/use-subjects'
+import { useToast } from '@/hooks/use-toast'
+import { DialogDescription } from '@/components/ui/dialog'
 
 interface ScheduledBlock {
   id: string
@@ -34,7 +36,45 @@ export function WeeklyTimetable() {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
   const [selectedBlock, setSelectedBlock] = useState<ScheduledBlock | null>(null)
   const [selectedDay, setSelectedDay] = useState(1) // Monday
+  const [isLoading, setIsLoading] = useState(true)
   const { subjects } = useSubjects()
+  const { toast } = useToast()
+
+  // Fetch timetable entries from API on mount
+  useEffect(() => {
+    const fetchTimetable = async () => {
+      try {
+        setIsLoading(true)
+        const response = await fetch('/api/timetable')
+        if (!response.ok) throw new Error('Failed to fetch timetable')
+        
+        const data = await response.json()
+        const formattedBlocks: ScheduledBlock[] = data.entries.map((entry: any) => ({
+          id: entry.id.toString(),
+          title: entry.title || entry.subject_name || 'Study Session',
+          subject: entry.subject_name || 'Unknown',
+          subjectColor: entry.subject_color || '#3B82F6',
+          dayOfWeek: entry.day_of_week,
+          startTime: entry.start_time,
+          endTime: entry.end_time,
+          repeatMode: 'weekly' as const,
+          repeatLabel: `${entry.subject_name || 'Study'} → ${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][entry.day_of_week]}`,
+        }))
+        setBlocks(formattedBlocks)
+      } catch (error) {
+        console.error('Error fetching timetable:', error)
+        toast({
+          title: 'Error',
+          description: 'Failed to load timetable',
+          variant: 'destructive',
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchTimetable()
+  }, [])
 
   const [newBlock, setNewBlock] = useState({
     title: '',
@@ -53,34 +93,65 @@ export function WeeklyTimetable() {
     return `${subject} → Mon Wed Fri`
   }
 
-  const handleAddBlock = () => {
+  const handleAddBlock = async () => {
     const subject = subjects.find(s => s.id === newBlock.subjectId)
     if (!subject) return
 
-    const repeatLabel = getRepeatLabel(subject.name, newBlock.dayOfWeek, newBlock.repeatMode)
+    try {
+      // Save to database via API
+      const response = await fetch('/api/timetable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject_id: null,
+          day_of_week: newBlock.dayOfWeek,
+          start_time: newBlock.startTime,
+          end_time: newBlock.endTime,
+          title: newBlock.title || subject.name,
+        }),
+      })
 
-    const block: ScheduledBlock = {
-      id: Date.now().toString(),
-      title: newBlock.title || subject.name,
-      subject: subject.name,
-      subjectColor: subject.color,
-      dayOfWeek: newBlock.dayOfWeek,
-      startTime: newBlock.startTime,
-      endTime: newBlock.endTime,
-      repeatMode: newBlock.repeatMode,
-      repeatLabel,
+      if (!response.ok) throw new Error('Failed to create timetable entry')
+      
+      const data = await response.json()
+      const entry = data.entry
+
+      const repeatLabel = getRepeatLabel(subject.name, newBlock.dayOfWeek, newBlock.repeatMode)
+      const block: ScheduledBlock = {
+        id: entry.id.toString(),
+        title: newBlock.title || subject.name,
+        subject: subject.name,
+        subjectColor: subject.color,
+        dayOfWeek: newBlock.dayOfWeek,
+        startTime: newBlock.startTime,
+        endTime: newBlock.endTime,
+        repeatMode: newBlock.repeatMode,
+        repeatLabel,
+      }
+
+      setBlocks(prev => [...prev, block])
+      setIsDialogOpen(false)
+      setNewBlock({
+        title: '',
+        subjectId: '',
+        dayOfWeek: 1,
+        startTime: '09:00',
+        endTime: '10:00',
+        repeatMode: 'weekly',
+      })
+      
+      toast({
+        title: 'Success',
+        description: 'Study block added to your timetable',
+      })
+    } catch (error) {
+      console.error('Error adding block:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to add study block',
+        variant: 'destructive',
+      })
     }
-
-    setBlocks(prev => [...prev, block])
-    setIsDialogOpen(false)
-    setNewBlock({
-      title: '',
-      subjectId: '',
-      dayOfWeek: 1,
-      startTime: '09:00',
-      endTime: '10:00',
-      repeatMode: 'weekly',
-    })
   }
 
   const openBlockDetails = (block: ScheduledBlock) => {
@@ -132,6 +203,9 @@ export function WeeklyTimetable() {
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>Add Study Block</DialogTitle>
+              <DialogDescription>
+                Pick a subject, day, and time to create a recurring timetable block.
+              </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-4 mt-4">
               <div className="flex flex-col gap-2">
@@ -239,121 +313,131 @@ export function WeeklyTimetable() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-6">
-        {/* Desktop View - Full Week */}
-        <Card className="bg-card border-border hidden lg:block">
-          <CardContent className="p-0">
-            <div className="grid grid-cols-8">
-              {/* Time Column */}
-              <div className="border-r border-border">
-                <div className="h-12 border-b border-border" />
-                {HOURS.map(hour => (
-                  <div key={hour} className="h-16 border-b border-border px-2 py-1">
-                    <span className="text-xs text-muted-foreground">
-                      {formatTime(`${hour.toString().padStart(2, '0')}:00`)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Day Columns */}
-              {DAYS.map((day, dayIndex) => (
-                <div key={day} className="border-r border-border last:border-r-0 relative">
-                  <div className="h-12 border-b border-border flex items-center justify-center">
-                    <span className="text-sm font-medium text-foreground">{day.slice(0, 3)}</span>
-                  </div>
-                  <div className="relative" style={{ height: `${16 * 4}rem` }}>
-                    {/* Hour grid lines */}
+        {isLoading ? (
+          <Card className="bg-card border-border">
+            <CardContent className="p-8 text-center">
+              <p className="text-muted-foreground">Loading timetable...</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            {/* Desktop View - Full Week */}
+            <Card className="bg-card border-border hidden lg:block">
+              <CardContent className="p-0">
+                <div className="grid grid-cols-8">
+                  {/* Time Column */}
+                  <div className="border-r border-border">
+                    <div className="h-12 border-b border-border" />
                     {HOURS.map(hour => (
-                      <div key={hour} className="h-16 border-b border-border" />
+                      <div key={hour} className="h-16 border-b border-border px-2 py-1">
+                        <span className="text-xs text-muted-foreground">
+                          {formatTime(`${hour.toString().padStart(2, '0')}:00`)}
+                        </span>
+                      </div>
                     ))}
-                    {/* Blocks */}
-                    {getBlocksForDay(dayIndex).map(block => {
-                      const pos = getBlockPosition(block)
-                      return (
-                        <button
-                          key={block.id}
-                          type="button"
-                          onClick={() => openBlockDetails(block)}
-                          className="absolute left-1 right-1 rounded-md p-2 overflow-hidden text-left hover:opacity-90 transition-opacity"
-                          style={{
-                            ...pos,
-                            backgroundColor: `${block.subjectColor}20`,
-                            borderLeft: `3px solid ${block.subjectColor}`,
-                          }}
-                        >
-                          <p className="text-xs font-medium text-foreground truncate">{block.title}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {formatTime(block.startTime)} - {formatTime(block.endTime)}
-                          </p>
-                        </button>
-                      )
-                    })}
+                  </div>
+
+                  {/* Day Columns */}
+                  {DAYS.map((day, dayIndex) => (
+                    <div key={day} className="border-r border-border last:border-r-0 relative">
+                      <div className="h-12 border-b border-border flex items-center justify-center">
+                        <span className="text-sm font-medium text-foreground">{day.slice(0, 3)}</span>
+                      </div>
+                      <div className="relative" style={{ height: `${16 * 4}rem` }}>
+                        {/* Hour grid lines */}
+                        {HOURS.map(hour => (
+                          <div key={hour} className="h-16 border-b border-border" />
+                        ))}
+                        {/* Blocks */}
+                        {getBlocksForDay(dayIndex).map(block => {
+                          const pos = getBlockPosition(block)
+                          return (
+                            <button
+                              key={block.id}
+                              type="button"
+                              onClick={() => openBlockDetails(block)}
+                              className="absolute left-1 right-1 rounded-md p-2 overflow-hidden text-left hover:opacity-90 transition-opacity"
+                              style={{
+                                ...pos,
+                                backgroundColor: `${block.subjectColor}20`,
+                                borderLeft: `3px solid ${block.subjectColor}`,
+                              }}
+                            >
+                              <p className="text-xs font-medium text-foreground truncate">{block.title}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {formatTime(block.startTime)} - {formatTime(block.endTime)}
+                              </p>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Right Side Summary Panel */}
+            <Card className="bg-card border-border hidden lg:block">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg text-card-foreground flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-primary" />
+                  Today's Summary
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-lg bg-primary/10 border border-primary/20 p-3 text-center">
+                    <p className="text-lg font-bold text-foreground">{todaysBlocks.length}</p>
+                    <p className="text-[11px] text-muted-foreground">Sessions</p>
+                  </div>
+                  <div className="rounded-lg bg-accent/10 border border-accent/20 p-3 text-center">
+                    <p className="text-lg font-bold text-foreground">
+                      {todaysBlocks.length > 0 ? todaysBlocks[0].subject : '--'}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">Next Subject</p>
+                  </div>
+                  <div className="rounded-lg bg-success/10 border border-success/20 p-3 text-center">
+                    <p className="text-lg font-bold text-foreground">
+                      {todaysBlocks.length > 0 ? getDayLabel(selectedDay) : '--'}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">Day</p>
                   </div>
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
 
-        {/* Right Side Summary Panel */}
-        <Card className="bg-card border-border hidden lg:block">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg text-card-foreground flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-primary" />
-              Today's Summary
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <div className="grid grid-cols-3 gap-2">
-              <div className="rounded-lg bg-primary/10 border border-primary/20 p-3 text-center">
-                <p className="text-lg font-bold text-foreground">{todaysBlocks.length}</p>
-                <p className="text-[11px] text-muted-foreground">Sessions</p>
-              </div>
-              <div className="rounded-lg bg-accent/10 border border-accent/20 p-3 text-center">
-                <p className="text-lg font-bold text-foreground">
-                  {todaysBlocks.length > 0 ? todaysBlocks[0].subject : '--'}
-                </p>
-                <p className="text-[11px] text-muted-foreground">Next Subject</p>
-              </div>
-              <div className="rounded-lg bg-success/10 border border-success/20 p-3 text-center">
-                <p className="text-lg font-bold text-foreground">
-                  {todaysBlocks.length > 0 ? getDayLabel(selectedDay) : '--'}
-                </p>
-                <p className="text-[11px] text-muted-foreground">Day</p>
-              </div>
-            </div>
-
-            {todaysBlocks.length === 0 ? (
-              <div className="rounded-lg bg-muted/50 p-4">
-                <p className="text-sm font-medium text-foreground">No study blocks scheduled for today.</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Add a block to your timetable to see it here.
-                </p>
-              </div>
-            ) : (
-              todaysBlocks.map(block => (
-                <button
-                  key={block.id}
-                  type="button"
-                  onClick={() => openBlockDetails(block)}
-                  className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted/70 transition-colors text-left"
-                >
-                  <div className="w-1 h-12 rounded-full" style={{ backgroundColor: block.subjectColor }} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium text-foreground truncate">{block.title}</p>
-                      <Badge variant="outline" className="shrink-0">{block.repeatMode}</Badge>
-                    </div>
+                {todaysBlocks.length === 0 ? (
+                  <div className="rounded-lg bg-muted/50 p-4">
+                    <p className="text-sm font-medium text-foreground">No study blocks scheduled for today.</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {formatTime(block.startTime)} - {formatTime(block.endTime)}
+                      Add a block to your timetable to see it here.
                     </p>
-                    <p className="text-xs text-muted-foreground">{block.repeatLabel}</p>
                   </div>
-                </button>
-              ))
-            )}
-          </CardContent>
-        </Card>
+                ) : (
+                  todaysBlocks.map(block => (
+                    <button
+                      key={block.id}
+                      type="button"
+                      onClick={() => openBlockDetails(block)}
+                      className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted/70 transition-colors text-left"
+                    >
+                      <div className="w-1 h-12 rounded-full" style={{ backgroundColor: block.subjectColor }} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-medium text-foreground truncate">{block.title}</p>
+                          <Badge variant="outline" className="shrink-0">{block.repeatMode}</Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {formatTime(block.startTime)} - {formatTime(block.endTime)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{block.repeatLabel}</p>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
 
       {/* Mobile View - Single Day */}
@@ -411,6 +495,9 @@ export function WeeklyTimetable() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Session Details</DialogTitle>
+            <DialogDescription>
+              Review the selected timetable block or start a study session from here.
+            </DialogDescription>
           </DialogHeader>
 
           {selectedBlock && (

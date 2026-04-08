@@ -18,7 +18,7 @@ async function getTimetableEntries(userId: number) {
       subject_name: string | null
       subject_color: string | null
     }>(
-      `SELECT te.*, s.name as subject_name, s.color as subject_color
+      `SELECT te.*, COALESCE(s.name, te.title) as subject_name, COALESCE(s.color, '#3B82F6') as subject_color
        FROM timetable_entries te
        LEFT JOIN subjects s ON te.subject_id = s.id
        WHERE te.user_id = $1
@@ -47,7 +47,7 @@ async function getTimetableEntries(userId: number) {
       subject_color: string | null
     }>(
       `SELECT sb.id, sb.user_id, sb.subject_id, sb.day_of_week, sb.start_time, sb.end_time,
-              sb.title, NULL::text as location, s.name as subject_name, s.color as subject_color
+              sb.title, NULL::text as location, COALESCE(s.name, sb.title) as subject_name, COALESCE(s.color, '#3B82F6') as subject_color
        FROM scheduled_blocks sb
        LEFT JOIN subjects s ON sb.subject_id = s.id
        WHERE sb.user_id = $1
@@ -67,11 +67,24 @@ async function createTimetableEntry(
   location?: string,
 ) {
   try {
+    let resolvedSubjectId = subjectId
+
+    if (resolvedSubjectId !== null) {
+      const subjectRows = await query<{ id: number }>(
+        'SELECT id FROM subjects WHERE id = $1 AND user_id = $2 LIMIT 1',
+        [resolvedSubjectId, userId]
+      )
+
+      if (subjectRows.length === 0) {
+        resolvedSubjectId = null
+      }
+    }
+
     const rows = await query(
       `INSERT INTO timetable_entries (user_id, subject_id, day_of_week, start_time, end_time, title, location)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [userId, subjectId, dayOfWeek, startTime, endTime, title || null, location || null]
+      [userId, resolvedSubjectId, dayOfWeek, startTime, endTime, title || null, location || null]
     )
     return rows[0]
   } catch (error) {
