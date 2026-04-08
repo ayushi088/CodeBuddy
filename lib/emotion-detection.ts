@@ -1,8 +1,6 @@
-import { HfInference } from '@huggingface/inference'
-
-interface EmotionResult {
-  emotion: string
-  score: number
+interface AnalyzeApiResponse {
+  emotion?: string
+  emotion_confidence?: number
 }
 
 interface EmotionStats {
@@ -22,17 +20,9 @@ export interface EmotionData {
   timestamp: Date
 }
 
-let hf: HfInference | null = null
-
-// Initialize Hugging Face client (requires API key in env)
+// Kept for backward compatibility; detection now runs through server API.
 export const initializeEmotionDetection = () => {
-  const apiKey = process.env.NEXT_PUBLIC_HF_API_KEY
-  if (!apiKey) {
-    console.warn('Hugging Face API key not set. Emotion detection will use mock data.')
-    return null
-  }
-  hf = new HfInference(apiKey)
-  return hf
+  return true
 }
 
 /**
@@ -40,29 +30,26 @@ export const initializeEmotionDetection = () => {
  */
 export const detectEmotionFromImage = async (imageData: string | Blob): Promise<EmotionData | null> => {
   try {
-    if (!hf) {
-      initializeEmotionDetection()
-    }
+    // Always analyze through backend so browser does not require a public HF token.
+    const base64Image =
+      typeof imageData === 'string' ? imageData : await blobToDataUrl(imageData)
 
-    if (!hf) {
-      // Return mock emotion data for testing
+    const response = await fetch('/api/ai/analyze', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        image: base64Image,
+      }),
+    })
+
+    if (!response.ok) {
       return generateMockEmotionData()
     }
 
-    // Convert image to blob if needed
-    let blobData = imageData
-    if (typeof imageData === 'string') {
-      const response = await fetch(imageData)
-      blobData = await response.blob()
-    }
+    const result = (await response.json()) as AnalyzeApiResponse
 
-    // Use Hugging Face image classification for emotion detection
-    const result = await hf.imageClassification({
-      model: 'trpakov/vit-face-expression',
-      data: blobData as Blob,
-    }) as Array<{ label: string; score: number }>
-
-    // Process results
     const emotionMap: { [key: string]: number } = {
       sad: 0,
       happy: 0,
@@ -73,21 +60,14 @@ export const detectEmotionFromImage = async (imageData: string | Blob): Promise<
       surprise: 0,
     }
 
-    let dominantEmotion = 'neutral'
-    let maxScore = 0
+    const dominantEmotion = (result.emotion || 'neutral').toLowerCase()
+    const maxScore = Math.round((result.emotion_confidence ?? 0.75) * 100)
 
-    result.forEach((item) => {
-      const label = item.label.toLowerCase()
-      const score = Math.round(item.score * 100)
-
-      if (label in emotionMap) {
-        emotionMap[label] = score
-        if (score > maxScore) {
-          maxScore = score
-          dominantEmotion = label
-        }
-      }
-    })
+    if (dominantEmotion in emotionMap) {
+      emotionMap[dominantEmotion] = maxScore
+    } else {
+      emotionMap.neutral = maxScore
+    }
 
     return {
       dominant_emotion: dominantEmotion,
@@ -99,6 +79,22 @@ export const detectEmotionFromImage = async (imageData: string | Blob): Promise<
     console.error('Error detecting emotion:', error)
     return generateMockEmotionData()
   }
+}
+
+const blobToDataUrl = (blob: Blob): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      const result = reader.result
+      if (typeof result === 'string') {
+        resolve(result)
+      } else {
+        reject(new Error('Failed to convert blob to data URL'))
+      }
+    }
+    reader.onerror = () => reject(new Error('Failed to read blob'))
+    reader.readAsDataURL(blob)
+  })
 }
 
 /**

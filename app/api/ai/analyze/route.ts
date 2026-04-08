@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 const AI_ENGINE_URL = process.env.AI_ENGINE_URL || 'http://localhost:8000'
+let hasLoggedAiEngineUnavailable = false
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,29 +16,42 @@ export async function POST(request: NextRequest) {
     }
 
     // Forward request to Python AI engine
-    const response = await fetch(`${AI_ENGINE_URL}/analyze`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        image,
-        user_id: userId,
-      }),
-    })
+    let response: Response
+    try {
+      response = await fetch(`${AI_ENGINE_URL}/analyze`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          image,
+          user_id: userId,
+        }),
+      })
+    } catch {
+      if (!hasLoggedAiEngineUnavailable) {
+        console.warn(
+          `AI engine unavailable at ${AI_ENGINE_URL}. Using simulated emotion analysis.`
+        )
+        hasLoggedAiEngineUnavailable = true
+      }
+      return NextResponse.json(getSimulatedAnalysis())
+    }
 
     if (!response.ok) {
       // If AI engine is not available, return simulated data for demo
-      if (response.status === 502 || response.status === 503) {
+      if (response.status === 502 || response.status === 503 || response.status === 504) {
         return NextResponse.json(getSimulatedAnalysis())
       }
       throw new Error(`AI Engine error: ${response.status}`)
     }
 
+    hasLoggedAiEngineUnavailable = false
+
     const data = await response.json()
     return NextResponse.json(data)
   } catch (error) {
-    console.error('AI Analysis error:', error)
+    console.error('AI Analysis unexpected error:', error)
     // Return simulated data if AI engine is unavailable
     return NextResponse.json(getSimulatedAnalysis())
   }

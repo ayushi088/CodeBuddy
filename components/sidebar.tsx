@@ -19,6 +19,7 @@ import {
   Play,
   Calendar,
   BarChart3,
+  BookOpen,
   Settings,
   LogOut,
   ChevronDown,
@@ -30,6 +31,7 @@ const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/study', label: 'Study Session', icon: Play },
   { href: '/planner', label: 'Planner', icon: Calendar },
+  { href: '/recommendation', label: 'Resources', icon: BookOpen },
   { href: '/reports', label: 'Reports', icon: BarChart3 },
   { href: '/profile', label: 'Settings', icon: Settings },
 ]

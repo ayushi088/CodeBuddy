@@ -2,7 +2,7 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
-import { BADGES, LEVELS, getLevelFromPoints } from "@/lib/gamification"
+import { BADGES, LEVELS, getLevelFromPoints } from "@/lib/gamification-shared"
 import { useAuth } from "@/lib/auth-context"
 import useSWR from "swr"
 import {
