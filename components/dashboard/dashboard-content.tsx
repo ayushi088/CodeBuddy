@@ -1,8 +1,10 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import Link from 'next/link'
 import {
   Play,
@@ -31,6 +33,7 @@ interface DashboardContentProps {
 export function DashboardContent({ user }: DashboardContentProps) {
   const greeting = getGreeting()
   const firstName = user?.full_name?.split(' ')[0] || 'there'
+  const [isProfileSubmitted, setIsProfileSubmitted] = useState(false)
   const currentFocusLevel = 85
   const moodStatus = 'Focused'
   const productivityLevel = 'High'
@@ -65,6 +68,30 @@ export function DashboardContent({ user }: DashboardContentProps) {
     },
   ]
 
+  useEffect(() => {
+    if (!user) return
+
+    try {
+      const raw = localStorage.getItem(`profile-settings-${user.id}`)
+      if (!raw) {
+        setIsProfileSubmitted(Boolean(user.avatar_url))
+        return
+      }
+
+      const parsed = JSON.parse(raw) as { isProfileSubmitted?: boolean }
+      setIsProfileSubmitted(Boolean(parsed.isProfileSubmitted) || Boolean(user.avatar_url))
+    } catch {
+      setIsProfileSubmitted(Boolean(user?.avatar_url))
+    }
+  }, [user])
+
+  const initials = (user?.full_name || 'A')
+    .split(' ')
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2)
+
   return (
     <div className="p-6">
       {/* Header */}
@@ -77,12 +104,31 @@ export function DashboardContent({ user }: DashboardContentProps) {
             Ready to focus and achieve your goals today?
           </p>
         </div>
-        <Button asChild size="lg" className="gap-2">
-          <Link href="/study">
-            <Play className="w-4 h-4" />
-            Start Study Session
-          </Link>
-        </Button>
+        <div className="flex items-center gap-3">
+          <Button asChild size="lg" className="gap-2">
+            <Link href="/study">
+              <Play className="w-4 h-4" />
+              Start Study Session
+            </Link>
+          </Button>
+
+          {isProfileSubmitted && (
+            <Link
+              href="/profile"
+              className="group inline-flex items-center gap-2 rounded-full border border-border bg-card px-2.5 py-1.5 shadow-sm transition-all duration-200 hover:border-primary/40 hover:bg-muted/50"
+              aria-label="Open account"
+              title="Account"
+            >
+              <Avatar className="h-8 w-8 border border-primary/30">
+                <AvatarImage src={user?.avatar_url || undefined} />
+                <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+                  {initials}
+                </AvatarFallback>
+              </Avatar>
+              <span className="text-sm font-medium text-foreground pr-1">Account</span>
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Stats Grid */}

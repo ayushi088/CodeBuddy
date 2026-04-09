@@ -5,7 +5,6 @@ import { getCurrentUser } from '@/lib/auth'
 
 const MAX_UPLOAD_SIZE_BYTES = 2 * 1024 * 1024
 const ALLOWED_MIME_TYPES = new Set([
-  'application/pdf',
   'image/png',
   'image/jpeg',
   'image/webp',
@@ -33,26 +32,26 @@ export async function POST(request: Request) {
     }
 
     if (!ALLOWED_MIME_TYPES.has(file.type)) {
-      return NextResponse.json({ error: 'Only PDF, PNG, JPG, and WEBP are allowed' }, { status: 400 })
+      return NextResponse.json({ error: 'Only PNG, JPG, and WEBP are allowed' }, { status: 400 })
     }
 
     if (file.size > MAX_UPLOAD_SIZE_BYTES) {
       return NextResponse.json({ error: 'File is too large. Max size is 2MB.' }, { status: 400 })
     }
 
-    const uploadsDir = path.join(process.cwd(), 'public', 'uploads', 'timetables')
+    const uploadsDir = path.join(process.cwd(), 'public', 'uploads', 'avatars')
     await mkdir(uploadsDir, { recursive: true })
 
-    const safeOriginalName = sanitizeFileName(file.name || 'timetable')
+    const safeOriginalName = sanitizeFileName(file.name || 'avatar')
     const uniqueName = `${user.id}-${Date.now()}-${safeOriginalName}`
     const filePath = path.join(uploadsDir, uniqueName)
 
     const arrayBuffer = await file.arrayBuffer()
     await writeFile(filePath, Buffer.from(arrayBuffer))
 
-    return NextResponse.json({ url: `/uploads/timetables/${uniqueName}` })
+    return NextResponse.json({ url: `/uploads/avatars/${uniqueName}` })
   } catch (error) {
-    console.error('Timetable upload error:', error)
-    return NextResponse.json({ error: 'Failed to upload timetable' }, { status: 500 })
+    console.error('Avatar upload error:', error)
+    return NextResponse.json({ error: 'Failed to upload avatar' }, { status: 500 })
   }
 }
