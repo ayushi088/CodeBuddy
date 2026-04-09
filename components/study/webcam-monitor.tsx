@@ -8,30 +8,44 @@ import { detectEmotionFromImage } from '@/lib/emotion-detection'
 import { audioNotifications, preloadVoices } from '@/lib/audio-notifications'
 
 interface WebcamMonitorProps {
+  className?: string
   isActive: boolean
   onFocusUpdate: (score: number, metrics: {
     faceDetected: boolean
     eyesOpen: boolean
     lookingAtScreen: boolean
+    livenessSuspicious?: boolean
+    motionScore?: number
     emotion?: string
     emotionConfidence?: number
     allEmotions?: Record<string, number>
   }) => void
 }
 
-export function WebcamMonitor({ isActive, onFocusUpdate }: WebcamMonitorProps) {
+export function WebcamMonitor({ className, isActive, onFocusUpdate }: WebcamMonitorProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const motionCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const facePatchCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const [hasPermission, setHasPermission] = useState<boolean | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   
   // Track consecutive failures for alerts
+  const faceMissingCountRef = useRef(0)
+  const faceMissingAlertTriggeredRef = useRef(false)
   const eyesClosedCountRef = useRef(0)
   const awayFromScreenCountRef = useRef(0)
   const eyesAlertTriggeredRef = useRef(false)
   const awayAlertTriggeredRef = useRef(false)
+  const photoStaticCountRef = useRef(0)
+  const faceTextureStaticCountRef = useRef(0)
+  const tinyFaceCountRef = useRef(0)
+  const photoAlertTriggeredRef = useRef(false)
+  const previousMotionFrameRef = useRef<Uint8Array | null>(null)
+  const previousFacePatchRef = useRef<Uint8Array | null>(null)
+  const livenessWindowRef = useRef<Array<{ motion: number; blink: boolean; eyeContact: boolean }>>([])
 
   const getCameraSupportError = useCallback(() => {
     if (typeof window === 'undefined') {
@@ -105,6 +119,140 @@ export function WebcamMonitor({ isActive, onFocusUpdate }: WebcamMonitorProps) {
     return () => stopCamera()
   }, [startCamera, stopCamera])
 
+  useEffect(() => {
+    if (typeof document === 'undefined' || motionCanvasRef.current) {
+      return
+    }
+
+    const motionCanvas = document.createElement('canvas')
+    motionCanvas.width = 32
+    motionCanvas.height = 24
+    motionCanvasRef.current = motionCanvas
+
+    const facePatchCanvas = document.createElement('canvas')
+    facePatchCanvas.width = 24
+    facePatchCanvas.height = 24
+    facePatchCanvasRef.current = facePatchCanvas
+  }, [])
+
+  const computeMotionScore = useCallback(() => {
+    const motionCanvas = motionCanvasRef.current
+    const video = videoRef.current
+    if (!motionCanvas || !video) {
+      return 0
+    }
+
+    const context = motionCanvas.getContext('2d')
+    if (!context) {
+      return 0
+    }
+
+    context.drawImage(video, 0, 0, motionCanvas.width, motionCanvas.height)
+    const frame = context.getImageData(0, 0, motionCanvas.width, motionCanvas.height).data
+    const samples = new Uint8Array((frame.length / 4) | 0)
+
+    for (let frameIndex = 0, sampleIndex = 0; frameIndex < frame.length; frameIndex += 4, sampleIndex += 1) {
+      samples[sampleIndex] = Math.round((frame[frameIndex] + frame[frameIndex + 1] + frame[frameIndex + 2]) / 3)
+    }
+
+    let motionScore = 0
+    const previousSamples = previousMotionFrameRef.current
+    if (previousSamples && previousSamples.length === samples.length) {
+      let totalDifference = 0
+      for (let sampleIndex = 0; sampleIndex < samples.length; sampleIndex += 1) {
+        totalDifference += Math.abs(samples[sampleIndex] - previousSamples[sampleIndex])
+      }
+      motionScore = totalDifference / samples.length
+    }
+
+    previousMotionFrameRef.current = samples
+    return motionScore
+  }, [])
+
+  const computeFacePatchMotion = useCallback((bbox?: { x1: number; y1: number; x2: number; y2: number }) => {
+    if (!bbox) {
+      return null
+    }
+
+    const sourceCanvas = canvasRef.current
+    const facePatchCanvas = facePatchCanvasRef.current
+    if (!sourceCanvas || !facePatchCanvas) {
+      return null
+    }
+
+    const sourceCtx = sourceCanvas.getContext('2d')
+    const patchCtx = facePatchCanvas.getContext('2d')
+    if (!sourceCtx || !patchCtx) {
+      return null
+    }
+
+    const cropX = Math.max(0, Math.floor(bbox.x1))
+    const cropY = Math.max(0, Math.floor(bbox.y1))
+    const cropW = Math.max(1, Math.floor(bbox.x2 - bbox.x1))
+    const cropH = Math.max(1, Math.floor(bbox.y2 - bbox.y1))
+
+    const boundedW = Math.min(cropW, sourceCanvas.width - cropX)
+    const boundedH = Math.min(cropH, sourceCanvas.height - cropY)
+    if (boundedW <= 1 || boundedH <= 1) {
+      return null
+    }
+
+    patchCtx.clearRect(0, 0, facePatchCanvas.width, facePatchCanvas.height)
+    patchCtx.drawImage(
+      sourceCanvas,
+      cropX,
+      cropY,
+      boundedW,
+      boundedH,
+      0,
+      0,
+      facePatchCanvas.width,
+      facePatchCanvas.height,
+    )
+
+    const patch = patchCtx.getImageData(0, 0, facePatchCanvas.width, facePatchCanvas.height).data
+    const samples = new Uint8Array((patch.length / 4) | 0)
+
+    for (let patchIndex = 0, sampleIndex = 0; patchIndex < patch.length; patchIndex += 4, sampleIndex += 1) {
+      samples[sampleIndex] = Math.round((patch[patchIndex] + patch[patchIndex + 1] + patch[patchIndex + 2]) / 3)
+    }
+
+    let patchMotion = 0
+    const previousPatch = previousFacePatchRef.current
+    if (previousPatch && previousPatch.length === samples.length) {
+      let totalDifference = 0
+      for (let sampleIndex = 0; sampleIndex < samples.length; sampleIndex += 1) {
+        totalDifference += Math.abs(samples[sampleIndex] - previousPatch[sampleIndex])
+      }
+      patchMotion = totalDifference / samples.length
+    }
+
+    previousFacePatchRef.current = samples
+    return patchMotion
+  }, [])
+
+  const updateLivenessWindow = useCallback((sample: { motion: number; blink: boolean; eyeContact: boolean }) => {
+    const nextWindow = [...livenessWindowRef.current, sample].slice(-5)
+    livenessWindowRef.current = nextWindow
+
+    const enoughSamples = nextWindow.length >= 4
+    const blinkSeen = nextWindow.some((item) => item.blink)
+    const motionAvg = nextWindow.reduce((sum, item) => sum + item.motion, 0) / nextWindow.length
+    const eyeContactVariations = nextWindow.reduce((sum, item, index, array) => {
+      if (index === 0) return sum
+      return sum + Number(item.eyeContact !== array[index - 1].eyeContact)
+    }, 0)
+
+    const staticFace = motionAvg < 1.6 && eyeContactVariations === 0 && !blinkSeen
+    const suspicious = enoughSamples && staticFace
+
+    return {
+      suspicious,
+      motionAvg,
+      blinkSeen,
+    }
+  }, [])
+
   // Emotion detection and focus analysis - every 1 second
   useEffect(() => {
     if (!isActive || !hasPermission) return
@@ -131,23 +279,115 @@ export function WebcamMonitor({ isActive, onFocusUpdate }: WebcamMonitorProps) {
         if (emotionData) {
           setError(null)
 
-          // Simulate eye detection and screen detection
-          // In a real implementation, you'd use face/eye detection library
-          const eyesOpen = Math.random() > 0.15
-          const lookingAtScreen = Math.random() > 0.2
+          // Prefer explicit backend signal, but accept bbox presence as detected face.
+          const faceDetected = emotionData.face_detected === true || Boolean(emotionData.face_bbox)
+          const backendIndicatesUnknownUser =
+            emotionData.status === 'Unknown User' ||
+            Boolean(emotionData.alerts?.some((alert) => alert.code === 'UNKNOWN_USER'))
+          const backendLivenessFailed = faceDetected && emotionData.liveness_check === false
+          const eyesOpen = emotionData.blink_detected !== true
+          const motionScore = computeMotionScore()
+          const facePatchMotion = computeFacePatchMotion(emotionData.face_bbox)
+          const tinyFaceRatio =
+            typeof emotionData.face_area_ratio === 'number' && emotionData.face_area_ratio > 0
+              // Avoid false positives from normal laptop distance while still flagging very small face boxes.
+              ? emotionData.face_area_ratio < 0.06
+              : false
+
+          if (tinyFaceRatio) {
+            tinyFaceCountRef.current += 1
+          } else {
+            tinyFaceCountRef.current = 0
+          }
+
+          const tinyFacePersistent = tinyFaceCountRef.current >= 3
+          const photoAlertCandidate = faceDetected && motionScore < 1.8 && !emotionData.blink_detected
+          if (photoAlertCandidate) {
+            photoStaticCountRef.current += 1
+          } else {
+            photoStaticCountRef.current = 0
+            photoAlertTriggeredRef.current = false
+          }
+
+          if (faceDetected && facePatchMotion !== null && facePatchMotion < 1.2) {
+            faceTextureStaticCountRef.current += 1
+          } else {
+            faceTextureStaticCountRef.current = 0
+          }
+
+          const textureStaticSuspicious = faceTextureStaticCountRef.current >= 10
+
+          const lookingAwayByAlert = Boolean(
+            emotionData.alerts?.some((alert) => alert.code === 'LOOKING_AWAY')
+          )
+          const lookingAwayByScore =
+            typeof emotionData.eye_contact_score === 'number'
+              ? emotionData.eye_contact_score < 0.55
+              : false
+          const lookingAtScreen =
+            lookingAwayByAlert
+              ? false
+              : emotionData.eye_contact !== undefined
+              ? emotionData.eye_contact
+              : emotionData.is_looking_away !== undefined
+              ? !emotionData.is_looking_away
+              : !lookingAwayByScore
+
+          const liveness = updateLivenessWindow({
+            motion: motionScore,
+            blink: Boolean(emotionData.blink_detected),
+            eyeContact: lookingAtScreen,
+          })
+
+          const spoofHeuristic =
+            tinyFacePersistent &&
+            (photoStaticCountRef.current >= 4 || textureStaticSuspicious || liveness.suspicious)
+
+          const livenessSuspicious =
+            backendIndicatesUnknownUser ||
+            backendLivenessFailed ||
+            spoofHeuristic
+
+          if (tinyFacePersistent) {
+            setError('Face appears too small or far. Move closer to the webcam for live verification.')
+          }
+          if (livenessSuspicious && !photoAlertTriggeredRef.current) {
+            photoAlertTriggeredRef.current = true
+            audioNotifications.spoofDetected()
+          }
 
           // Map emotions to metrics
           const metrics = {
-            faceDetected: true,
+            faceDetected,
             eyesOpen,
             lookingAtScreen,
+            livenessSuspicious,
+            motionScore,
             emotion: emotionData.dominant_emotion,
             emotionConfidence: emotionData.confidence,
             allEmotions: emotionData.all_emotions,
           }
 
+          // Reset static-photo counters when strong spoof heuristic is not present.
+          if (!spoofHeuristic) {
+            photoStaticCountRef.current = 0
+            photoAlertTriggeredRef.current = false
+          }
+
+          // Track no-human detection and alert only after consecutive misses.
+          if (!faceDetected) {
+            faceMissingCountRef.current += 1
+            if (faceMissingCountRef.current >= 2 && !faceMissingAlertTriggeredRef.current) {
+              faceMissingAlertTriggeredRef.current = true
+              audioNotifications.noHumanDetected()
+            }
+          } else {
+            faceMissingCountRef.current = 0
+            faceMissingAlertTriggeredRef.current = false
+          }
+
           // Track eyes closed consecutive failures
-          if (!eyesOpen) {
+          if (faceDetected && !eyesOpen) {
             eyesClosedCountRef.current += 1
             // Alert after ~30 seconds (1-2 checks at 20-second intervals)
             if (eyesClosedCountRef.current >= 2 && !eyesAlertTriggeredRef.current) {
@@ -160,7 +400,7 @@ export function WebcamMonitor({ isActive, onFocusUpdate }: WebcamMonitorProps) {
           }
 
           // Track away from screen consecutive failures
-          if (!lookingAtScreen) {
+          if (faceDetected && !lookingAtScreen) {
             awayFromScreenCountRef.current += 1
             // Alert after ~30 seconds
             if (awayFromScreenCountRef.current >= 2 && !awayAlertTriggeredRef.current) {
@@ -203,8 +443,12 @@ export function WebcamMonitor({ isActive, onFocusUpdate }: WebcamMonitorProps) {
               break
           }
 
-          if (!eyesOpen) score -= 25
-          if (!lookingAtScreen) score -= 15
+          if (!faceDetected) {
+            score = 0
+          } else {
+            if (!eyesOpen) score -= 25
+            if (!lookingAtScreen) score -= 15
+          }
 
           score = Math.max(0, Math.min(100, score))
 
@@ -232,7 +476,7 @@ export function WebcamMonitor({ isActive, onFocusUpdate }: WebcamMonitorProps) {
   }, [isActive, hasPermission, onFocusUpdate])
 
   return (
-    <Card className="bg-card border-border overflow-hidden">
+    <Card className={`bg-card border-border overflow-hidden ${className || ''}`}>
       <CardHeader className="pb-2 flex flex-row items-center justify-between">
         <CardTitle className="text-lg text-card-foreground flex items-center gap-2">
           <Camera className="w-5 h-5 text-primary" />
@@ -252,7 +496,7 @@ export function WebcamMonitor({ isActive, onFocusUpdate }: WebcamMonitorProps) {
         )}
       </CardHeader>
       <CardContent className="p-0">
-        <div className="relative aspect-video bg-muted">
+        <div className="relative aspect-video bg-muted flex items-center justify-center">
           {hasPermission === null && (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center">

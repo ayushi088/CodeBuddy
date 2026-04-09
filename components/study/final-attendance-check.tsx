@@ -51,7 +51,7 @@ export function FinalAttendanceCheck({
             <p className="text-sm font-medium mb-2">What happens next:</p>
             <ul className="text-xs text-muted-foreground space-y-1">
               <li>✓ Camera will detect your face for 3 seconds</li>
-              <li>✓ Emotion snapshot will be captured</li>
+              <li>✓ Presence snapshot will be captured</li>
               <li>✓ Attendance will be finalized</li>
             </ul>
           </div>

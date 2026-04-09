@@ -13,9 +13,10 @@ interface Alert {
 
 interface AlertsPanelProps {
   alerts: Alert[]
+  className?: string
 }
 
-export function AlertsPanel({ alerts }: AlertsPanelProps) {
+export function AlertsPanel({ alerts, className }: AlertsPanelProps) {
   const getAlertConfig = (type: Alert['type']) => {
     switch (type) {
       case 'error':
@@ -51,8 +52,8 @@ export function AlertsPanel({ alerts }: AlertsPanelProps) {
   }
 
   return (
-    <Card className="bg-card border-border">
-      <CardHeader className="pb-2">
+    <Card className={`bg-card/90 border-border/70 shadow-sm flex h-full min-h-0 flex-col ${className || ''}`}>
+      <CardHeader className="pb-2 border-b border-border/60 bg-muted/20">
         <CardTitle className="text-lg text-card-foreground flex items-center gap-2">
           <Bell className="w-5 h-5 text-warning" />
           Alerts
@@ -63,8 +64,8 @@ export function AlertsPanel({ alerts }: AlertsPanelProps) {
           )}
         </CardTitle>
       </CardHeader>
-      <CardContent className="p-0">
-        <ScrollArea className="h-[280px]">
+      <CardContent className="p-0 flex-1 min-h-0">
+        <ScrollArea className="h-full min-h-[360px]">
           {alerts.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 px-4">
               <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center mb-2">
@@ -76,14 +77,14 @@ export function AlertsPanel({ alerts }: AlertsPanelProps) {
               </p>
             </div>
           ) : (
-            <div className="flex flex-col gap-2 p-4">
+            <div className="flex flex-col gap-3 p-4">
               {alerts.map((alert) => {
                 const config = getAlertConfig(alert.type)
                 const Icon = config.icon
                 return (
                   <div
                     key={alert.id}
-                    className={`flex items-start gap-3 p-3 rounded-lg border ${config.bgColor} ${config.borderColor}`}
+                    className={`flex items-start gap-3 p-3.5 rounded-xl border ${config.bgColor} ${config.borderColor}`}
                   >
                     <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${config.textColor}`} />
                     <div className="flex-1 min-w-0">

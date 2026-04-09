@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   Dialog,
   DialogContent,
@@ -15,6 +16,7 @@ import {
 } from '@/components/ui/dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { AlertTriangle, Brain } from 'lucide-react'
+import { useSubjects } from '@/hooks/use-subjects'
 
 interface SessionSetupDialogProps {
   isOpen: boolean
@@ -23,14 +25,42 @@ interface SessionSetupDialogProps {
 }
 
 export function SessionSetupDialog({ isOpen, onClose, onStart }: SessionSetupDialogProps) {
-  const [subject, setSubject] = useState('')
+  const { subjects } = useSubjects()
+  const [selectedSubjectId, setSelectedSubjectId] = useState('')
+  const [customSubject, setCustomSubject] = useState('')
   const [duration, setDuration] = useState('45')
   const [error, setError] = useState('')
+  const customOptionValue = '__custom__'
+
+  const selectedSubjectName = useMemo(
+    () => subjects.find((item) => item.id === selectedSubjectId)?.name || '',
+    [selectedSubjectId, subjects]
+  )
+
+  const resolvedSubject = useMemo(() => {
+    if (subjects.length === 0) return customSubject.trim()
+    if (selectedSubjectId === customOptionValue) return customSubject.trim()
+    return selectedSubjectName.trim()
+  }, [customSubject, selectedSubjectId, selectedSubjectName, subjects.length])
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    if (subjects.length === 0) {
+      setSelectedSubjectId('')
+      return
+    }
+
+    const selectedExists = subjects.some((item) => item.id === selectedSubjectId)
+    if (!selectedSubjectId || (!selectedExists && selectedSubjectId !== customOptionValue)) {
+      setSelectedSubjectId(subjects[0].id)
+    }
+  }, [isOpen, selectedSubjectId, subjects])
 
   const handleStart = useCallback(() => {
     setError('')
 
-    if (!subject.trim()) {
+    if (!resolvedSubject) {
       setError('Please enter a subject')
       return
     }
@@ -44,11 +74,12 @@ export function SessionSetupDialog({ isOpen, onClose, onStart }: SessionSetupDia
     // Auto-set to 45 if less than 45
     const finalDuration = Math.max(durationNum, 45)
 
-    onStart(subject.trim(), finalDuration)
-    setSubject('')
+    onStart(resolvedSubject, finalDuration)
+    setSelectedSubjectId(subjects[0]?.id || '')
+    setCustomSubject('')
     setDuration('45')
     setError('')
-  }, [subject, duration, onStart])
+  }, [duration, onStart, resolvedSubject, subjects])
 
   const handleDurationChange = (value: string) => {
     setDuration(value)
@@ -73,13 +104,43 @@ export function SessionSetupDialog({ isOpen, onClose, onStart }: SessionSetupDia
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="subject">Subject</Label>
-            <Input
-              id="subject"
-              placeholder="e.g., Mathematics, Programming, History"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleStart()}
-            />
+            {subjects.length === 0 ? (
+              <Input
+                id="subject"
+                placeholder="e.g., Mathematics, Programming, History"
+                value={customSubject}
+                onChange={(e) => setCustomSubject(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleStart()}
+              />
+            ) : (
+              <div className="space-y-2">
+                <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
+                  <SelectTrigger id="subject">
+                    <SelectValue placeholder="Select subject" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {subjects.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        <div className="flex items-center gap-2">
+                          <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                          {item.name}
+                        </div>
+                      </SelectItem>
+                    ))}
+                    <SelectItem value={customOptionValue}>Custom subject</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {selectedSubjectId === customOptionValue && (
+                  <Input
+                    placeholder="Type custom subject"
+                    value={customSubject}
+                    onChange={(e) => setCustomSubject(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleStart()}
+                  />
+                )}
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">

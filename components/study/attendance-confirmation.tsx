@@ -16,14 +16,12 @@ interface AttendanceConfirmationProps {
   isOpen: boolean
   onConfirm: () => void
   sessionMinutes: number
-  emotionSummary?: string
 }
 
 export function AttendanceConfirmation({
   isOpen,
   onConfirm,
   sessionMinutes,
-  emotionSummary,
 }: AttendanceConfirmationProps) {
   return (
     <Dialog open={isOpen}>
@@ -56,17 +54,11 @@ export function AttendanceConfirmation({
               <span className="text-sm text-muted-foreground">Status:</span>
               <span className="text-sm font-medium text-green-600">Present</span>
             </div>
-            {emotionSummary && (
-              <div className="pt-2 border-t border-border">
-                <p className="text-xs text-muted-foreground mb-1">Emotion Summary:</p>
-                <p className="text-sm font-medium">{emotionSummary}</p>
-              </div>
-            )}
           </div>
 
           <div className="space-y-2 text-sm text-muted-foreground">
             <p>✓ Attendance marked automatically</p>
-            <p>✓ Emotions tracked throughout session</p>
+            <p>✓ Session analytics captured</p>
             <p>✓ Session data saved</p>
           </div>
         </div>

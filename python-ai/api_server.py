@@ -88,7 +88,7 @@ def _absent_response() -> dict:
     }
 
 
-def _build_response(face_crop: np.ndarray) -> dict:
+def _build_response(face_crop: np.ndarray, frame_shape: tuple[int, int], bbox: tuple[int, int, int, int]) -> dict:
     emotion, emotion_conf = detect_emotion(face_crop)
     attention = detect_attention(face_crop)
 
@@ -133,8 +133,22 @@ def _build_response(face_crop: np.ndarray) -> dict:
             }
         )
 
+    frame_height, frame_width = frame_shape
+    x1, y1, x2, y2 = bbox
+    face_width = max(0, x2 - x1)
+    face_height = max(0, y2 - y1)
+    frame_area = max(1, frame_width * frame_height)
+    face_area_ratio = float((face_width * face_height) / frame_area)
+
     return {
         "face_detected": True,
+        "face_bbox": {
+            "x1": int(x1),
+            "y1": int(y1),
+            "x2": int(x2),
+            "y2": int(y2),
+        },
+        "face_area_ratio": face_area_ratio,
         "eye_contact": eye_contact,
         "eye_contact_score": eye_contact_score,
         "emotion": emotion.lower(),
@@ -181,7 +195,8 @@ def analyze(payload: FrameData) -> dict:
     if face_crop is None or face_crop.size == 0:
         return _absent_response()
 
-    return _build_response(face_crop)
+    frame_height, frame_width = frame.shape[:2]
+    return _build_response(face_crop, (frame_height, frame_width), (x1, y1, x2, y2))
 
 
 def run_server(host: str = "0.0.0.0", port: int = 8000) -> None:

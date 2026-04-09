@@ -1,6 +1,26 @@
 interface AnalyzeApiResponse {
   emotion?: string
   emotion_confidence?: number
+  face_detected?: boolean
+  face_area_ratio?: number
+  face_bbox?: {
+    x1: number
+    y1: number
+    x2: number
+    y2: number
+  }
+  eye_contact?: boolean
+  eye_contact_score?: number
+  is_looking_away?: boolean
+  blink_detected?: boolean
+  liveness_check?: boolean
+  status?: string
+  verified?: boolean
+  alerts?: Array<{
+    type?: string
+    message?: string
+    code?: string
+  }>
   simulated?: boolean
   ai_source?: string
   error?: string
@@ -23,6 +43,26 @@ export interface EmotionData {
   dominant_emotion: string
   all_emotions: EmotionStats
   confidence: number
+  face_detected?: boolean
+  face_area_ratio?: number
+  face_bbox?: {
+    x1: number
+    y1: number
+    x2: number
+    y2: number
+  }
+  eye_contact?: boolean
+  eye_contact_score?: number
+  is_looking_away?: boolean
+  blink_detected?: boolean
+  liveness_check?: boolean
+  status?: string
+  verified?: boolean
+  alerts?: Array<{
+    type?: string
+    message?: string
+    code?: string
+  }>
   timestamp: Date
 }
 
@@ -91,6 +131,17 @@ export const detectEmotionFromImage = async (imageData: string | Blob): Promise<
       dominant_emotion: dominantEmotion,
       all_emotions: emotionMap as unknown as EmotionStats,
       confidence: maxScore / 100,
+      face_detected: result.face_detected,
+      face_area_ratio: result.face_area_ratio,
+      face_bbox: result.face_bbox,
+      eye_contact: result.eye_contact,
+      eye_contact_score: result.eye_contact_score,
+      is_looking_away: result.is_looking_away,
+      blink_detected: result.blink_detected,
+      liveness_check: result.liveness_check,
+      status: result.status,
+      verified: result.verified,
+      alerts: result.alerts,
       timestamp: new Date(),
     }
   } catch (error) {

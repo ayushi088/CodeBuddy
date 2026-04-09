@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Target } from 'lucide-react'
 
@@ -8,23 +9,48 @@ interface FocusMeterProps {
 }
 
 export function FocusMeter({ score }: FocusMeterProps) {
+  const [displayedScore, setDisplayedScore] = useState(score)
+
+  useEffect(() => {
+    const next = Math.max(0, Math.min(100, score))
+
+    if (Math.abs(next - displayedScore) < 1) {
+      setDisplayedScore(next)
+      return
+    }
+
+    const step = next > displayedScore ? 1 : -1
+    const timer = window.setInterval(() => {
+      setDisplayedScore((current) => {
+        const reached = step > 0 ? current >= next : current <= next
+        if (reached) {
+          window.clearInterval(timer)
+          return next
+        }
+        return current + step
+      })
+    }, 40)
+
+    return () => window.clearInterval(timer)
+  }, [displayedScore, score])
+
   const getColor = () => {
-    if (score >= 70) return { bg: 'bg-success', text: 'text-success', glow: 'shadow-success/30' }
-    if (score >= 40) return { bg: 'bg-warning', text: 'text-warning', glow: 'shadow-warning/30' }
+    if (displayedScore >= 70) return { bg: 'bg-success', text: 'text-success', glow: 'shadow-success/30' }
+    if (displayedScore >= 40) return { bg: 'bg-warning', text: 'text-warning', glow: 'shadow-warning/30' }
     return { bg: 'bg-destructive', text: 'text-destructive', glow: 'shadow-destructive/30' }
   }
 
   const getLabel = () => {
-    if (score >= 90) return 'Excellent'
-    if (score >= 70) return 'Good'
-    if (score >= 50) return 'Fair'
-    if (score >= 30) return 'Needs Improvement'
+    if (displayedScore >= 90) return 'Excellent'
+    if (displayedScore >= 70) return 'Good'
+    if (displayedScore >= 50) return 'Fair'
+    if (displayedScore >= 30) return 'Needs Improvement'
     return 'Low Focus'
   }
 
   const colors = getColor()
   const circumference = 2 * Math.PI * 45
-  const strokeDashoffset = circumference - (score / 100) * circumference
+  const strokeDashoffset = circumference - (displayedScore / 100) * circumference
 
   return (
     <Card className="bg-card border-border">
@@ -67,7 +93,7 @@ export function FocusMeter({ score }: FocusMeterProps) {
             </svg>
             {/* Center content */}
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className={`text-3xl font-bold ${colors.text}`}>{score}</span>
+              <span className={`text-3xl font-bold ${colors.text}`}>{Math.round(displayedScore)}</span>
               <span className="text-xs text-muted-foreground">/ 100</span>
             </div>
           </div>
@@ -80,9 +106,9 @@ export function FocusMeter({ score }: FocusMeterProps) {
           {/* Tips */}
           <div className="mt-4 p-3 rounded-lg bg-muted/50 w-full">
             <p className="text-xs text-muted-foreground text-center">
-              {score >= 70
+              {displayedScore >= 70
                 ? 'Great focus! Keep up the good work.'
-                : score >= 40
+                : displayedScore >= 40
                 ? 'Try to minimize distractions and stay focused.'
                 : 'Take a short break or adjust your environment.'}
             </p>

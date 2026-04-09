@@ -1,20 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db'
-import { verifyToken } from '@/lib/auth'
-import { cookies } from 'next/headers'
+import { getCurrentUser } from '@/lib/auth'
 
 export async function GET(request: NextRequest) {
   try {
-    const cookieStore = await cookies()
-    const token = cookieStore.get('auth_token')?.value
-
-    if (!token) {
+    const user = await getCurrentUser()
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const payload = await verifyToken(token)
-    if (!payload) {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
     }
 
     const { searchParams } = new URL(request.url)
@@ -28,10 +20,10 @@ export async function GET(request: NextRequest) {
        WHERE ss.user_id = $1
        ORDER BY ss.start_time DESC
        LIMIT $2 OFFSET $3`,
-      [payload.userId, limit, offset]
+      [user.id, limit, offset]
     )
 
-    return NextResponse.json({ sessions: sessions.rows })
+    return NextResponse.json({ sessions })
   } catch (error) {
     console.error('Get sessions error:', error)
     return NextResponse.json(
@@ -43,29 +35,32 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = await cookies()
-    const token = cookieStore.get('auth_token')?.value
-
-    if (!token) {
+    const user = await getCurrentUser()
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const payload = await verifyToken(token)
-    if (!payload) {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
     }
 
     const body = await request.json()
     const { subject_id, planned_duration_minutes } = body
 
-    const result = await query(
+    if (
+      planned_duration_minutes !== undefined &&
+      (!Number.isFinite(planned_duration_minutes) || planned_duration_minutes <= 0)
+    ) {
+      return NextResponse.json(
+        { error: 'planned_duration_minutes must be a positive number' },
+        { status: 400 }
+      )
+    }
+
+    const sessions = await query(
       `INSERT INTO study_sessions (user_id, subject_id, planned_duration_minutes, start_time)
        VALUES ($1, $2, $3, NOW())
        RETURNING *`,
-      [payload.userId, subject_id || null, planned_duration_minutes || 60]
+      [user.id, subject_id || null, planned_duration_minutes || 60]
     )
 
-    return NextResponse.json({ session: result.rows[0] })
+    return NextResponse.json({ session: sessions[0] })
   } catch (error) {
     console.error('Create session error:', error)
     return NextResponse.json(

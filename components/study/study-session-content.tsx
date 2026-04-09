@@ -13,16 +13,17 @@ import {
   CheckCircle2,
   Target,
   Eye,
-  Smile,
   Brain,
   CalendarClock,
   AlertTriangle,
+  Volume2,
+  VolumeX,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react'
 import { WebcamMonitor } from './webcam-monitor'
-import { FocusMeter } from './focus-meter'
 import { AlertsPanel } from './alerts-panel'
 import { SessionTimer } from './session-timer'
-import { EmotionStats } from '@/components/dashboard/emotion-stats'
 import { SessionSetupDialog } from './session-setup-dialog'
 import { StartupEmotionDetection } from './startup-emotion-detection'
 import { EarlyExitWarning } from './early-exit-warning'
@@ -53,6 +54,7 @@ interface Alert {
 }
 
 export function StudySessionContent() {
+  const containerRef = useRef<HTMLDivElement>(null)
   const [status, setStatus] = useState<SessionStatus>('setup')
   const [plannedDuration, setPlannedDuration] = useState(60)
   const [cameraEnabled, setCameraEnabled] = useState(false)
@@ -60,28 +62,36 @@ export function StudySessionContent() {
   const [focusScore, setFocusScore] = useState(100)
   const [sessionSeconds, setSessionSeconds] = useState(0)
   const [alerts, setAlerts] = useState<Alert[]>([])
-  const [lastEmotion, setLastEmotion] = useState('N/A')
   const [liveMetrics, setLiveMetrics] = useState({
     faceDetected: false,
     eyesOpen: false,
     lookingAtScreen: false,
-    emotionConfidence: 0,
   })
   
   // Emotion tracking
   const [emotionHistory, setEmotionHistory] = useState<EmotionData[]>([])
-  const [currentEmotionData, setCurrentEmotionData] = useState<EmotionData | null>(null)
   const emotionHistoryRef = useRef<EmotionData[]>([])
   
   // New workflow state
   const [showSetupDialog, setShowSetupDialog] = useState(false)
   const [sessionSubject, setSessionSubject] = useState('')
-  const [startupEmotionData, setStartupEmotionData] = useState<EmotionData | null>(null)
   const [showEarlyExitWarning, setShowEarlyExitWarning] = useState(false)
   const [showAttendanceConfirmation, setShowAttendanceConfirmation] = useState(false)
   const [showFinalCheck, setShowFinalCheck] = useState(false)
   const [attendanceMarkedAt, setAttendanceMarkedAt] = useState<number | null>(null)
   const [finalCheckTriggered, setFinalCheckTriggered] = useState(false)
+  const lastAlertTimestampRef = useRef<Map<string, number>>(new Map())
+  const faceMissingStreakRef = useRef(0)
+  const eyesClosedStreakRef = useRef(0)
+  const lookingAwayStreakRef = useRef(0)
+  const faceMissingAlertActiveRef = useRef(false)
+  const eyesClosedAlertActiveRef = useRef(false)
+  const lookingAwayAlertActiveRef = useRef(false)
+  const spoofAlertActiveRef = useRef(false)
+  const livenessSuspiciousStreakRef = useRef(0)
+  const focusScoreRef = useRef(100)
+  const focusScoreTotalRef = useRef(0)
+  const focusScoreSamplesRef = useRef(0)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
@@ -94,11 +104,8 @@ export function StudySessionContent() {
   const [attendanceMessage, setAttendanceMessage] = useState('Select a scheduled session to begin.')
   const [attendanceMarked, setAttendanceMarked] = useState(false)
   const [attendanceInProgress, setAttendanceInProgress] = useState(false)
-
-  const selectedSession = useMemo(
-    () => todaySessions.find((session) => session.id === selectedSessionId) || null,
-    [todaySessions, selectedSessionId]
-  )
+  const [isVoiceMuted, setIsVoiceMuted] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
 
   const parseTime = useCallback((timeValue: string) => {
     const [hours, minutes] = timeValue.split(':').map(Number)
@@ -137,12 +144,38 @@ export function StudySessionContent() {
     return getSessionTimingStateAt(session, now)
   }, [getSessionTimingStateAt, now])
 
+  const upcomingSessions = useMemo(
+    () => todaySessions.filter((session) => getSessionTimingState(session) === 'upcoming'),
+    [getSessionTimingState, todaySessions]
+  )
+
+  const selectedSession = useMemo(
+    () => upcomingSessions.find((session) => session.id === selectedSessionId) || null,
+    [upcomingSessions, selectedSessionId]
+  )
+
   useEffect(() => {
     const interval = setInterval(() => {
       setNow(new Date())
     }, 30000)
 
     return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    setIsVoiceMuted(audioNotifications.isMuted())
+  }, [])
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement))
+    }
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+    }
   }, [])
 
   useEffect(() => {
@@ -206,10 +239,8 @@ export function StudySessionContent() {
 
         if (sessions.length > 0) {
           const nowAtLoad = new Date()
-          const active = sessions.find(session => getSessionTimingStateAt(session, nowAtLoad) === 'active')
           const firstUpcoming = sessions.find(session => getSessionTimingStateAt(session, nowAtLoad) === 'upcoming')
-          const defaultSelection = active || firstUpcoming || sessions[0]
-          setSelectedSessionId(defaultSelection.id)
+          setSelectedSessionId(firstUpcoming ? firstUpcoming.id : '')
         }
       } catch (error) {
         console.warn('Error loading today sessions:', error)
@@ -246,6 +277,20 @@ export function StudySessionContent() {
     }
   }, [attendanceMarked, getSessionTimingState, selectedSession, status])
 
+  useEffect(() => {
+    if (upcomingSessions.length === 0) {
+      if (selectedSessionId !== '') {
+        setSelectedSessionId('')
+      }
+      return
+    }
+
+    const selectedIsUpcoming = upcomingSessions.some((session) => session.id === selectedSessionId)
+    if (!selectedIsUpcoming) {
+      setSelectedSessionId(upcomingSessions[0].id)
+    }
+  }, [upcomingSessions, selectedSessionId])
+
   // New workflow: Handle "Start Study Session" button click
   const handleStartStudyClick = useCallback(() => {
     // Show setup dialog if no active session
@@ -270,6 +315,10 @@ export function StudySessionContent() {
     setSessionSeconds(0)
     setAttendanceMarkedAt(null)
     setFinalCheckTriggered(false)
+    setFocusScore(100)
+    focusScoreRef.current = 100
+    focusScoreTotalRef.current = 0
+    focusScoreSamplesRef.current = 0
     emotionHistoryRef.current = []
   }, [])
 
@@ -279,8 +328,7 @@ export function StudySessionContent() {
 
   // Handle completion of startup emotion detection
   const handleStartupEmotionComplete = useCallback((emotionData: EmotionData | null) => {
-    setStartupEmotionData(emotionData)
-    setCurrentEmotionData(emotionData)
+    void emotionData
     
     // Start the actual session
     setStatus('active')
@@ -354,6 +402,11 @@ export function StudySessionContent() {
     // Save emotion data and session to database
     if (selectedSession && attendanceMarkedAt !== null) {
       try {
+        const averageFocusScore =
+          focusScoreSamplesRef.current > 0
+            ? Number((focusScoreTotalRef.current / focusScoreSamplesRef.current).toFixed(2))
+            : focusScoreRef.current
+
         const response = await fetch('/api/emotions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -361,6 +414,7 @@ export function StudySessionContent() {
             sessionId: selectedSession.id,
             userId: '1', // Get from context/auth in real app
             emotionData: emotionHistoryRef.current,
+            averageFocusScore,
             attendanceMarkedAt,
             plannedDuration,
             sessionSeconds,
@@ -391,15 +445,44 @@ export function StudySessionContent() {
     setStatus('active')
   }, [])
 
+  const handleToggleVoiceMute = useCallback(() => {
+    const nextMuted = audioNotifications.toggleMuted()
+    setIsVoiceMuted(nextMuted)
+  }, [])
+
+  const handleToggleFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen()
+        return
+      }
+
+      await (containerRef.current || document.documentElement).requestFullscreen()
+    } catch (error) {
+      console.warn('Fullscreen toggle failed:', error)
+    }
+  }, [])
+
   const handleNewSession = useCallback(() => {
     setStatus('setup')
     setSessionSeconds(0)
     setFocusScore(100)
+    focusScoreRef.current = 100
+    focusScoreTotalRef.current = 0
+    focusScoreSamplesRef.current = 0
     setAlerts([])
     setAttendanceMarked(false)
     setAttendanceInProgress(false)
     setAttendanceStatus('pending')
     setAttendanceMessage('Select a scheduled session to begin.')
+    faceMissingStreakRef.current = 0
+    eyesClosedStreakRef.current = 0
+    lookingAwayStreakRef.current = 0
+    faceMissingAlertActiveRef.current = false
+    eyesClosedAlertActiveRef.current = false
+    lookingAwayAlertActiveRef.current = false
+    spoofAlertActiveRef.current = false
+    livenessSuspiciousStreakRef.current = 0
   }, [])
 
   const handleSelectSession = useCallback((sessionId: string) => {
@@ -408,10 +491,21 @@ export function StudySessionContent() {
     setSessionSeconds(0)
     setAlerts([])
     setFocusScore(100)
+    focusScoreRef.current = 100
+    focusScoreTotalRef.current = 0
+    focusScoreSamplesRef.current = 0
     setAttendanceMarked(false)
     setAttendanceInProgress(false)
     setAttendanceStatus('pending')
     setAttendanceMessage('Click Mark Attendance to open webcam and verify your presence.')
+    faceMissingStreakRef.current = 0
+    eyesClosedStreakRef.current = 0
+    lookingAwayStreakRef.current = 0
+    faceMissingAlertActiveRef.current = false
+    eyesClosedAlertActiveRef.current = false
+    lookingAwayAlertActiveRef.current = false
+    spoofAlertActiveRef.current = false
+    livenessSuspiciousStreakRef.current = 0
   }, [])
 
   const handleMarkAttendance = useCallback(() => {
@@ -470,9 +564,10 @@ export function StudySessionContent() {
             .sort((a: ScheduledSession, b: ScheduledSession) => a.time.localeCompare(b.time))
           
           setTodaySessions(sessions)
-          if (sessions.length > 0) {
-            setSelectedSessionId(sessions[0].id)
-          }
+
+          const nowAtLoad = new Date()
+          const firstUpcoming = sessions.find(session => getSessionTimingStateAt(session, nowAtLoad) === 'upcoming')
+          setSelectedSessionId(firstUpcoming ? firstUpcoming.id : '')
         }
       }
     } catch (error) {
@@ -483,8 +578,20 @@ export function StudySessionContent() {
   }, [])
 
   const addAlert = useCallback((type: Alert['type'], message: string) => {
+    const nowMs = Date.now()
+    const alertKey = `${type}:${message}`
+    const lastTimestamp = lastAlertTimestampRef.current.get(alertKey) ?? 0
+    const duplicateCooldownMs = 8000
+
+    // Drop identical alerts during cooldown to avoid per-second spam.
+    if (nowMs - lastTimestamp < duplicateCooldownMs) {
+      return
+    }
+
+    lastAlertTimestampRef.current.set(alertKey, nowMs)
+
     const newAlert: Alert = {
-      id: Date.now().toString(),
+      id: nowMs.toString(),
       type,
       message,
       timestamp: new Date(),
@@ -496,20 +603,73 @@ export function StudySessionContent() {
     faceDetected: boolean
     eyesOpen: boolean
     lookingAtScreen: boolean
+    livenessSuspicious?: boolean
+    motionScore?: number
     emotion?: string
     emotionConfidence?: number
     allEmotions?: Record<string, number>
   }) => {
-    setFocusScore(newScore)
+    if (metrics.livenessSuspicious) {
+      livenessSuspiciousStreakRef.current += 1
+    } else {
+      livenessSuspiciousStreakRef.current = 0
+      audioNotifications.stopAll()
+      spoofAlertActiveRef.current = false
+    }
+
+    const shouldBlockAsSpoof =
+      livenessSuspiciousStreakRef.current >= 4 &&
+      (metrics.motionScore ?? Number.POSITIVE_INFINITY) < 1.15
+
+    if (shouldBlockAsSpoof) {
+      focusScoreRef.current = 0
+      setFocusScore(0)
+      setLiveMetrics({
+        faceDetected: false,
+        eyesOpen: false,
+        lookingAtScreen: false,
+      })
+
+      faceMissingStreakRef.current = 0
+      eyesClosedStreakRef.current = 0
+      lookingAwayStreakRef.current = 0
+      faceMissingAlertActiveRef.current = false
+      eyesClosedAlertActiveRef.current = false
+      lookingAwayAlertActiveRef.current = false
+
+      if (!spoofAlertActiveRef.current) {
+        spoofAlertActiveRef.current = true
+        addAlert('error', 'Replay/photo attack detected - show your real face directly to the webcam.')
+      }
+
+      return
+    }
+
+    // Smooth score updates to avoid distracting jumps during active study.
+    const currentScore = focusScoreRef.current
+    const delta = newScore - currentScore
+    let nextScore = currentScore
+
+    if (Math.abs(delta) >= 1) {
+      const weightedDelta = delta * 0.35
+      const cappedStep = Math.max(-6, Math.min(6, weightedDelta))
+      nextScore = Math.round(Math.max(0, Math.min(100, currentScore + cappedStep)))
+    }
+
+    focusScoreRef.current = nextScore
+    setFocusScore(nextScore)
+
+    if (status === 'active') {
+      focusScoreTotalRef.current += nextScore
+      focusScoreSamplesRef.current += 1
+    }
+
     setLiveMetrics({
       faceDetected: metrics.faceDetected,
       eyesOpen: metrics.eyesOpen,
       lookingAtScreen: metrics.lookingAtScreen,
-      emotionConfidence: metrics.emotionConfidence ?? 0,
     })
     if (emotionDetectionEnabled) {
-      setLastEmotion(metrics.emotion || 'Neutral')
-      
       // Track emotion data
       if (metrics.emotionConfidence !== undefined && metrics.allEmotions) {
         const emotionData: EmotionData = {
@@ -518,8 +678,7 @@ export function StudySessionContent() {
           confidence: metrics.emotionConfidence,
           timestamp: new Date(),
         }
-        
-        setCurrentEmotionData(emotionData)
+
         emotionHistoryRef.current.push(emotionData)
         
         // Keep only last 60 emotions in state (for performance)
@@ -547,20 +706,58 @@ export function StudySessionContent() {
       return
     }
     
-    // Generate alerts based on metrics
+    // Generate alerts only for sustained conditions and once per continuous event.
+    const missingFaceThreshold = 2
+    const eyesClosedThreshold = 3
+    const lookingAwayThreshold = 2
+
     if (!metrics.faceDetected) {
-      addAlert('warning', 'Face not detected - Please stay in frame')
-    } else if (!metrics.eyesOpen) {
-      addAlert('info', 'Eyes appear closed - Taking a break?')
-    } else if (!metrics.lookingAtScreen) {
-      addAlert('warning', 'Looking away from screen')
+      faceMissingStreakRef.current += 1
+      eyesClosedStreakRef.current = 0
+      lookingAwayStreakRef.current = 0
+      eyesClosedAlertActiveRef.current = false
+      lookingAwayAlertActiveRef.current = false
+
+      if (
+        faceMissingStreakRef.current >= missingFaceThreshold &&
+        !faceMissingAlertActiveRef.current
+      ) {
+        faceMissingAlertActiveRef.current = true
+        addAlert('warning', 'Face not detected - Please stay in frame')
+      }
+    } else {
+      faceMissingStreakRef.current = 0
+      faceMissingAlertActiveRef.current = false
+
+      if (!metrics.eyesOpen) {
+        eyesClosedStreakRef.current += 1
+        if (
+          eyesClosedStreakRef.current >= eyesClosedThreshold &&
+          !eyesClosedAlertActiveRef.current
+        ) {
+          eyesClosedAlertActiveRef.current = true
+          addAlert('info', 'Eyes appear closed - Taking a break?')
+        }
+      } else {
+        eyesClosedStreakRef.current = 0
+        eyesClosedAlertActiveRef.current = false
+      }
+
+      if (!metrics.lookingAtScreen) {
+        lookingAwayStreakRef.current += 1
+        if (
+          lookingAwayStreakRef.current >= lookingAwayThreshold &&
+          !lookingAwayAlertActiveRef.current
+        ) {
+          lookingAwayAlertActiveRef.current = true
+          addAlert('warning', 'Looking away from screen')
+        }
+      } else {
+        lookingAwayStreakRef.current = 0
+        lookingAwayAlertActiveRef.current = false
+      }
     }
   }, [addAlert, attendanceInProgress, attendanceMarked, emotionDetectionEnabled, getSessionBounds, getSessionTimingState, now, selectedSession, status])
-
-  const activeSessionId = useMemo(() => {
-    const activeSession = todaySessions.find(session => getSessionTimingState(session) === 'active')
-    return activeSession?.id || null
-  }, [getSessionTimingState, todaySessions])
 
   const attendanceBadgeVariant =
     attendanceStatus === 'present'
@@ -571,8 +768,15 @@ export function StudySessionContent() {
       ? 'destructive'
       : 'outline'
 
+  const isSessionRunningView = status === 'active' || status === 'paused'
+
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div
+      ref={containerRef}
+      className={`max-w-[1400px] mx-auto ${
+        isSessionRunningView ? 'px-4 pt-2 pb-4 space-y-4' : 'p-6 space-y-6'
+      }`}
+    >
       {/* Dialogs for new workflow */}
       <SessionSetupDialog
         isOpen={showSetupDialog}
@@ -606,23 +810,41 @@ export function StudySessionContent() {
         isOpen={showAttendanceConfirmation}
         onConfirm={handleCompleteSession}
         sessionMinutes={plannedDuration}
-        emotionSummary={
-          startupEmotionData
-            ? `${startupEmotionData.dominant_emotion.charAt(0).toUpperCase() + startupEmotionData.dominant_emotion.slice(1)} (${Math.round(startupEmotionData.confidence * 100)}%)`
-            : undefined
-        }
       />
 
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Study Planner</h1>
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground">Study Planner</h1>
           <p className="text-muted-foreground mt-1">
-            {status === 'setup' && 'Click "Start Study Session" to begin with emotion detection'}
-            {status === 'startup-detection' && 'Analyzing your emotions... (5 seconds)'}
+            {status === 'setup' && 'Click "Start Study Session" to begin'}
+            {status === 'startup-detection' && 'Preparing your session... (5 seconds)'}
             {status === 'active' && 'Focus on your studies - AI monitoring active'}
             {status === 'paused' && 'Session paused - Take a break'}
             {(status === 'final-check' || status === 'completed') && 'Session completing - attendancecheck'}
           </p>
+        </div>
+        <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-card/60 p-1.5 backdrop-blur-sm">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={handleToggleFullscreen}
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          >
+            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={handleToggleVoiceMute}
+            aria-label={isVoiceMuted ? 'Unmute voice alerts' : 'Mute voice alerts'}
+          >
+            {isVoiceMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+            {isVoiceMuted ? 'Voice Muted' : 'Mute Voice'}
+          </Button>
         </div>
       </div>
 
@@ -632,7 +854,7 @@ export function StudySessionContent() {
             <CardHeader>
               <CardTitle className="text-lg text-card-foreground flex items-center gap-2">
                 <CalendarClock className="w-5 h-5 text-primary" />
-                Today's Study Schedule
+                Upcoming Study Schedule
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
@@ -648,12 +870,12 @@ export function StudySessionContent() {
                 </Alert>
               )}
 
-              {!isLoadingSessions && !sessionsError && todaySessions.length === 0 && (
+              {!isLoadingSessions && !sessionsError && upcomingSessions.length === 0 && (
                 <div className="flex flex-col gap-3">
                   <Alert>
-                    <AlertTitle>No Sessions Scheduled Today</AlertTitle>
+                    <AlertTitle>No Upcoming Sessions Today</AlertTitle>
                     <AlertDescription>
-                      Add blocks in Planner to see sessions here, or start a quick study session below.
+                      Add upcoming blocks in Planner to see sessions here, or start a quick study session below.
                     </AlertDescription>
                   </Alert>
                   <Button 
@@ -674,9 +896,8 @@ export function StudySessionContent() {
                 </div>
               )}
 
-              {todaySessions.map((session) => {
+              {upcomingSessions.map((session) => {
                 const isSelected = selectedSessionId === session.id
-                const isActive = activeSessionId === session.id
                 const [startTime, endTime] = session.time.split(' - ')
 
                 return (
@@ -686,11 +907,10 @@ export function StudySessionContent() {
                     onClick={() => handleSelectSession(session.id)}
                     className={`w-full rounded-lg border p-3 text-left transition-colors ${
                       isSelected ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/40'
-                    } ${isActive ? 'ring-1 ring-primary/50' : ''}`}
+                    }`}
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-semibold text-foreground">{startTime} – {endTime}</span>
-                      {isActive && <Badge>Active Now</Badge>}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">→ {session.subject}</p>
                     <p className="text-xs text-muted-foreground">{session.goal}</p>
@@ -804,12 +1024,12 @@ export function StudySessionContent() {
               <CardHeader>
                 <CardTitle className="text-lg text-card-foreground flex items-center gap-2">
                   <Brain className="w-5 h-5 text-primary animate-pulse" />
-                  Session Starting - Emotion Detection
+                  Session Starting
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Initializing emotion detection. Please stay visible to the camera.
+                  Initializing camera checks. Please stay visible to the camera.
                 </p>
                 <div className="aspect-video bg-muted rounded-lg flex items-center justify-center">
                   {cameraEnabled && <div className="text-muted-foreground">Camera Feed</div>}
@@ -847,23 +1067,11 @@ export function StudySessionContent() {
       )}
 
       {(status === 'active' || status === 'paused') && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2.35fr)_minmax(280px,0.9fr)] gap-5 items-stretch">
           {/* Main Area - Webcam & Focus */}
-          <div className="lg:col-span-2 flex flex-col gap-6">
-            {/* Attendance Status */}
-            {attendanceMarkedAt && (
-              <Alert>
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
-                <AlertTitle>Attendance Marked</AlertTitle>
-                <AlertDescription>
-                  Attendance was automatically marked at {Math.floor(attendanceMarkedAt / 60)} minute
-                  {attendanceMarkedAt >= 120 ? 's' : ''}.
-                </AlertDescription>
-              </Alert>
-            )}
-
+          <div className="flex flex-col gap-5 min-h-[72vh]">
             {/* Session Timer & Controls */}
-            <Card className="bg-card border-border">
+            <Card className="bg-card/90 border-border/70 shadow-sm">
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <SessionTimer
@@ -902,7 +1110,7 @@ export function StudySessionContent() {
             )}
 
             {/* Focus Metrics */}
-            <Card className="bg-card border-border">
+            <Card className="bg-card/90 border-border/70 shadow-sm">
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg text-card-foreground flex items-center gap-2">
                   <Brain className="w-5 h-5 text-primary" />
@@ -929,22 +1137,14 @@ export function StudySessionContent() {
                     value={liveMetrics.faceDetected ? 'Detected' : 'Missing'}
                     color={liveMetrics.faceDetected ? 'success' : 'destructive'}
                   />
-                  <MetricCard
-                    icon={Smile}
-                    label="Emotion"
-                    value={emotionDetectionEnabled ? `${lastEmotion} ${liveMetrics.emotionConfidence ? `(${Math.round(liveMetrics.emotionConfidence * 100)}%)` : ''}`.trim() : 'Disabled'}
-                    color="primary"
-                  />
                 </div>
               </CardContent>
             </Card>
           </div>
 
           {/* Sidebar - Focus Meter & Alerts */}
-          <div className="flex flex-col gap-6">
-            <FocusMeter score={focusScore} />
-            {emotionDetectionEnabled && <EmotionStats emotionData={currentEmotionData} />}
-            <AlertsPanel alerts={alerts} />
+          <div className="flex flex-col gap-6 min-h-[72vh]">
+            <AlertsPanel alerts={alerts} className="h-full" />
           </div>
         </div>
       )}
