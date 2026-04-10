@@ -1,4 +1,5 @@
 import { HfInference } from '@huggingface/inference'
+import { getTrustedResources } from '@/lib/trustedResources'
 
 /**
  * Recommendation Strategy Types
@@ -13,6 +14,7 @@ export interface VideoResult {
   title: string
   link: string
   thumbnail?: string
+  channelTitle?: string
   duration?: string
 }
 
@@ -20,9 +22,11 @@ export interface VideoResult {
  * Resource Link
  */
 export interface ResourceLink {
-  type: 'notes' | 'practice' | 'articles'
+  type: 'notes' | 'practice' | 'practice-sheet' | 'previous-year-paper' | 'articles'
   title: string
-  link: string
+  source: string
+  description: string
+  previewUrl: string
 }
 
 /**
@@ -47,6 +51,40 @@ export interface RecommendationResult {
   notes: string
   generatedAt: string
 }
+
+const MIN_VIDEO_DURATION_SECONDS = 30 * 60
+const DEFAULT_VIDEO_COUNT = 8
+const MIN_RELEVANCE_SCORE = 1
+const MATH_KEYWORDS = [
+  'math',
+  'mathematics',
+  'algebra',
+  'geometry',
+  'trigonometry',
+  'calculus',
+  'probability',
+  'statistics',
+  'set',
+  'sets',
+]
+const PROGRAMMING_KEYWORDS = [
+  'dsa',
+  'data structure',
+  'coding',
+  'programming',
+  'c++',
+  'java',
+  'python',
+  'javascript',
+]
+const GENERIC_TOPIC_TOKENS = [
+  'math',
+  'mathematics',
+  'lecture',
+  'tutorial',
+  'course',
+  'subject',
+]
 
 /**
  * Rule Engine: Determine strategy based on user data
@@ -89,80 +127,453 @@ function determineStrategy(userData: UserData): {
  */
 async function fetchYouTubeVideos(
   topic: string,
-  maxResults: number = 3
+  maxResults: number = DEFAULT_VIDEO_COUNT
 ): Promise<VideoResult[]> {
   const apiKey = process.env.YOUTUBE_API_KEY
 
   if (!apiKey) {
-    console.warn('YouTube API key not configured, returning mock videos')
-    return getMockYouTubeVideos(topic)
+    console.warn('YouTube API key not configured, using public search fallback')
+    return fetchYouTubeVideosWithoutApi(topic, maxResults)
   }
 
   try {
-    const searchQuery = `${topic} tutorial`
-    const url = new URL('https://www.googleapis.com/youtube/v3/search')
-    url.searchParams.append('key', apiKey)
-    url.searchParams.append('q', searchQuery)
-    url.searchParams.append('part', 'snippet')
-    url.searchParams.append('maxResults', maxResults.toString())
-    url.searchParams.append('type', 'video')
-    url.searchParams.append('order', 'relevance')
+    const expandedMax = Math.min(Math.max(maxResults * 2, 12), 25)
+    const combinedQuery = buildTopicAwareQuery(topic)
+    const topicTokens = tokenizeTopic(topic)
+    const requiredRelevanceScore = getRequiredRelevanceScore(topicTokens)
 
-    const response = await fetch(url.toString(), {
-      method: 'GET',
+    const allIds = await searchYouTubeVideoIds(apiKey, combinedQuery, expandedMax)
+    if (allIds.length === 0) {
+      return fetchYouTubeVideosWithoutApi(topic, maxResults)
+    }
+
+    const detailedVideos = await fetchYouTubeVideoDetails(apiKey, allIds)
+
+    const eligibleVideos = detailedVideos
+      .filter((video) => {
+        const durationSeconds = parseDurationToSeconds(video.duration)
+        return durationSeconds >= MIN_VIDEO_DURATION_SECONDS
+      })
+      .filter((video) => !isDomainMismatch(video, topic))
+
+    const topicMatchedVideos = eligibleVideos.filter((video) => {
+      const relevanceScore = getTopicRelevanceScore(video, topicTokens)
+      return relevanceScore >= requiredRelevanceScore
+    })
+
+    const rankingPool = topicMatchedVideos.length > 0 ? topicMatchedVideos : []
+    
+    if (rankingPool.length === 0) {
+      return fetchYouTubeVideosWithoutApi(topic, maxResults)
+    }
+
+    const rankedVideos = rankingPool
+      .sort((a, b) => rankVideoForTopic(b, topicTokens) - rankVideoForTopic(a, topicTokens))
+      .map(({ relevanceText, viewCount, likeCount, title, channelTitle, ...video }) => ({
+        ...video,
+        title,
+        channelTitle,
+      }))
+
+    if (rankedVideos.length === 0) {
+      return fetchYouTubeVideosWithoutApi(topic, maxResults)
+    }
+
+    return rankedVideos.slice(0, maxResults)
+  } catch (error) {
+    console.error('Error fetching YouTube videos:', error)
+    return fetchYouTubeVideosWithoutApi(topic, maxResults)
+  }
+}
+
+async function fetchYouTubeVideosWithoutApi(
+  topic: string,
+  maxResults: number
+): Promise<VideoResult[]> {
+  const query = buildTopicAwareQuery(topic)
+  const topicTokens = tokenizeTopic(topic)
+  const requiredRelevanceScore = getRequiredRelevanceScore(topicTokens)
+
+  try {
+    const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`
+    const response = await fetch(searchUrl, {
       headers: {
-        'Accept': 'application/json',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        Accept: 'text/html',
       },
     })
 
     if (!response.ok) {
-      console.warn('YouTube API error, returning mock videos')
-      return getMockYouTubeVideos(topic)
+      return []
+    }
+
+    const html = await response.text()
+    const idMatches = Array.from(html.matchAll(/"videoId":"([A-Za-z0-9_-]{11})"/g))
+    const uniqueIds: string[] = []
+
+    for (const match of idMatches) {
+      const id = match[1]
+      if (!uniqueIds.includes(id)) {
+        uniqueIds.push(id)
+      }
+      if (uniqueIds.length >= maxResults * 4) {
+        break
+      }
+    }
+
+    if (uniqueIds.length === 0) {
+      return []
+    }
+
+    const metadataResults = await Promise.allSettled(
+      uniqueIds.map((id) => fetchYouTubeOEmbed(id))
+    )
+
+    const candidates = metadataResults
+      .filter((result): result is PromiseFulfilledResult<{ id: string; title: string; channelTitle: string } | null> => result.status === 'fulfilled')
+      .map((result) => result.value)
+      .filter((video): video is { id: string; title: string; channelTitle: string } => Boolean(video))
+      .map((video) => ({
+        id: video.id,
+        title: video.title,
+        link: `https://www.youtube.com/watch?v=${video.id}`,
+        thumbnail: `https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`,
+        channelTitle: video.channelTitle,
+      }))
+
+    const filtered = candidates
+      .filter((video) => {
+        const relevanceText = `${video.title} ${video.channelTitle || ''}`.toLowerCase()
+        const relevanceScore = getTopicRelevanceScore(
+          { ...video, relevanceText },
+          topicTokens
+        )
+        return relevanceScore >= requiredRelevanceScore
+      })
+      .filter((video) =>
+        !isDomainMismatch(
+          { ...video, relevanceText: `${video.title} ${video.channelTitle || ''}`.toLowerCase() },
+          topic
+        )
+      )
+
+    return filtered.slice(0, maxResults)
+  } catch (error) {
+    console.error('Error in no-API YouTube fallback:', error)
+    return []
+  }
+}
+
+async function fetchYouTubeOEmbed(
+  videoId: string
+): Promise<{ id: string; title: string; channelTitle: string } | null> {
+  try {
+    const url = `https://www.youtube.com/oembed?url=${encodeURIComponent(
+      `https://www.youtube.com/watch?v=${videoId}`
+    )}&format=json`
+
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'application/json',
+      },
+    })
+
+    if (!response.ok) {
+      return null
     }
 
     const data = await response.json()
-    return data.items
-      .slice(0, maxResults)
-      .map((item: any) => ({
-        id: item.id.videoId,
-        title: item.snippet.title,
-        link: `https://www.youtube.com/watch?v=${item.id.videoId}`,
-        thumbnail: item.snippet.thumbnails?.medium?.url,
-        duration: undefined, // Duration requires additional API call
-      }))
-  } catch (error) {
-    console.error('Error fetching YouTube videos:', error)
-    return getMockYouTubeVideos(topic)
+    const title = typeof data.title === 'string' ? data.title : ''
+    const channelTitle = typeof data.author_name === 'string' ? data.author_name : ''
+
+    if (!title) {
+      return null
+    }
+
+    return {
+      id: videoId,
+      title,
+      channelTitle,
+    }
+  } catch {
+    return null
   }
+}
+
+async function searchYouTubeVideoIds(
+  apiKey: string,
+  query: string,
+  maxResults: number
+): Promise<string[]> {
+  const url = new URL('https://www.googleapis.com/youtube/v3/search')
+  url.searchParams.append('key', apiKey)
+  url.searchParams.append('q', query)
+  url.searchParams.append('part', 'snippet')
+  url.searchParams.append('maxResults', maxResults.toString())
+  url.searchParams.append('type', 'video')
+  url.searchParams.append('order', 'relevance')
+  url.searchParams.append('videoDuration', 'long')
+  url.searchParams.append('relevanceLanguage', 'en')
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+  })
+
+  if (!response.ok) {
+    return []
+  }
+
+  const data = await response.json()
+  return (data.items || [])
+    .map((item: any) => item?.id?.videoId)
+    .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+}
+
+async function fetchYouTubeVideoDetails(
+  apiKey: string,
+  videoIds: string[]
+): Promise<Array<VideoResult & { relevanceText: string; viewCount: number; likeCount: number }>> {
+  const chunkSize = 50
+  const allResults: Array<VideoResult & { relevanceText: string; viewCount: number; likeCount: number }> = []
+
+  for (let i = 0; i < videoIds.length; i += chunkSize) {
+    const chunk = videoIds.slice(i, i + chunkSize)
+    if (chunk.length === 0) continue
+
+    const url = new URL('https://www.googleapis.com/youtube/v3/videos')
+    url.searchParams.append('key', apiKey)
+    url.searchParams.append('id', chunk.join(','))
+    url.searchParams.append('part', 'snippet,contentDetails,statistics')
+    url.searchParams.append('maxResults', chunk.length.toString())
+
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+      },
+    })
+
+    if (!response.ok) {
+      continue
+    }
+
+    const data = await response.json()
+    const mapped: Array<VideoResult & { relevanceText: string; viewCount: number; likeCount: number }> = (data.items || []).map((item: any) => {
+      const rawDuration = item?.contentDetails?.duration
+      const durationSeconds = parseDurationToSeconds(rawDuration)
+      const title = item?.snippet?.title || 'YouTube Video'
+      const description = item?.snippet?.description || ''
+      const viewCount = Number(item?.statistics?.viewCount || 0)
+      const likeCount = Number(item?.statistics?.likeCount || 0)
+
+      return {
+        id: item.id,
+        title,
+        link: `https://www.youtube.com/watch?v=${item.id}`,
+        thumbnail: item?.snippet?.thumbnails?.medium?.url,
+        channelTitle: item?.snippet?.channelTitle,
+        duration: formatDuration(durationSeconds),
+        relevanceText: `${title} ${description}`.toLowerCase(),
+        viewCount,
+        likeCount,
+      }
+    })
+
+    allResults.push(...mapped)
+  }
+
+  const deduped = new Map<string, VideoResult & { relevanceText: string; viewCount: number; likeCount: number }>()
+  for (const video of allResults) {
+    if (!deduped.has(video.id)) {
+      deduped.set(video.id, video)
+    }
+  }
+
+  return Array.from(deduped.values())
+}
+
+function tokenizeTopic(topic: string): string[] {
+  const stopWords = new Set(['the', 'and', 'for', 'with', 'from', 'into', 'this', 'that', 'your', 'their'])
+  return topic
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 2 && !stopWords.has(token))
+}
+
+function getTopicRelevanceScore(
+  video: VideoResult & { relevanceText: string },
+  topicTokens: string[]
+): number {
+  if (topicTokens.length === 0) return 0
+
+  let score = 0
+  for (const token of topicTokens) {
+    if (video.relevanceText.includes(token)) {
+      score += 1
+    }
+  }
+
+  return score
+}
+
+function parseDurationToSeconds(duration?: string): number {
+  if (!duration) return 0
+
+  if (duration.startsWith('PT')) {
+    const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/)
+    if (!match) return 0
+
+    const hours = Number(match[1] || 0)
+    const minutes = Number(match[2] || 0)
+    const seconds = Number(match[3] || 0)
+
+    return hours * 3600 + minutes * 60 + seconds
+  }
+
+  const parts = duration.split(':').map((value) => Number(value))
+  if (parts.some((part) => Number.isNaN(part))) {
+    return 0
+  }
+
+  if (parts.length === 3) {
+    const [hours, minutes, seconds] = parts
+    return hours * 3600 + minutes * 60 + seconds
+  }
+
+  if (parts.length === 2) {
+    const [minutes, seconds] = parts
+    return minutes * 60 + seconds
+  }
+
+  return 0
+}
+
+function formatDuration(totalSeconds: number): string {
+  if (totalSeconds <= 0) return 'N/A'
+
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+  }
+
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
+}
+
+function rankVideoForTopic(
+  video: VideoResult & { relevanceText: string; viewCount: number; likeCount: number },
+  topicTokens: string[]
+): number {
+  const durationSeconds = parseDurationToSeconds(video.duration)
+  const topicScore = getTopicRelevanceScore(video, topicTokens)
+
+  return (
+    topicScore * 200000 +
+    Math.min(video.viewCount, 10000000) * 0.02 +
+    Math.min(video.likeCount, 500000) * 0.2 +
+    durationSeconds * 0.5
+  )
+}
+
+function getRequiredRelevanceScore(topicTokens: string[]): number {
+  const specificTokens = topicTokens.filter(
+    (token) => !GENERIC_TOPIC_TOKENS.includes(token)
+  )
+
+  if (specificTokens.length <= 1) return MIN_RELEVANCE_SCORE
+  return 2
+}
+
+function isMathTopic(topic: string): boolean {
+  const normalizedTopic = topic.toLowerCase()
+  return MATH_KEYWORDS.some((keyword) => normalizedTopic.includes(keyword))
+}
+
+function buildTopicAwareQuery(topic: string): string {
+  const normalizedTopic = topic.toLowerCase()
+  const isMathOnlyTopic = isMathTopic(topic) && !PROGRAMMING_KEYWORDS.some((keyword) => normalizedTopic.includes(keyword))
+
+  if (isMathOnlyTopic) {
+    return `${topic} mathematics full lecture -dsa -programming -coding -java -python -c++`
+  }
+
+  return `${topic} full lecture tutorial`
+}
+
+function isDomainMismatch(video: VideoResult & { relevanceText: string }, topic: string): boolean {
+  const mathTopic = isMathTopic(topic)
+  const normalizedText = video.relevanceText.toLowerCase()
+
+  if (mathTopic) {
+    return PROGRAMMING_KEYWORDS.some((keyword) => normalizedText.includes(keyword))
+  }
+
+  return false
 }
 
 /**
  * Mock YouTube videos for development
  */
-function getMockYouTubeVideos(topic: string): VideoResult[] {
-  return [
+function getMockYouTubeVideos(topic: string, maxResults: number = DEFAULT_VIDEO_COUNT): VideoResult[] {
+  const mockVideos: VideoResult[] = [
     {
       id: 'video1',
-      title: `Complete ${topic} Tutorial For Beginners`,
-      link: `https://www.youtube.com/watch?v=dQw4w9WgXcQ`,
-      thumbnail: `https://img.youtube.com/vi/dQw4w9WgXcQ/mqdefault.jpg`,
-      duration: '15:30',
+      title: `${topic} Complete Course | Apna College Style Long Session`,
+      link: `https://www.youtube.com/watch?v=video1`,
+      thumbnail: 'https://placehold.co/640x360?text=Apna+College',
+      channelTitle: 'Apna College',
+      duration: '1:12:30',
     },
     {
       id: 'video2',
-      title: `${topic} Explained in Simple Terms`,
-      link: `https://www.youtube.com/watch?v=1234567890ab`,
-      thumbnail: `https://img.youtube.com/vi/1234567890ab/mqdefault.jpg`,
-      duration: '12:45',
+      title: `${topic} One Shot Revision + Concepts`,
+      link: `https://www.youtube.com/watch?v=video2`,
+      thumbnail: 'https://placehold.co/640x360?text=College+Wallah',
+      channelTitle: 'College Wallah',
+      duration: '58:40',
     },
     {
       id: 'video3',
-      title: `${topic} - Advanced Concepts & Tips`,
-      link: `https://www.youtube.com/watch?v=abcdef123456`,
-      thumbnail: `https://img.youtube.com/vi/abcdef123456/mqdefault.jpg`,
-      duration: '18:20',
+      title: `${topic} Full Lecture Series - Part 1`,
+      link: `https://www.youtube.com/watch?v=video3`,
+      thumbnail: 'https://placehold.co/640x360?text=Physics+Wallah',
+      channelTitle: 'Physics Wallah',
+      duration: '45:10',
+    },
+    {
+      id: 'video4',
+      title: `${topic} Full Lecture Series - Part 2`,
+      link: `https://www.youtube.com/watch?v=video4`,
+      thumbnail: 'https://placehold.co/640x360?text=Gate+Smashers',
+      channelTitle: 'Gate Smashers',
+      duration: '39:50',
+    },
+    {
+      id: 'video5',
+      title: `${topic} Problem Solving Marathon`,
+      link: `https://www.youtube.com/watch?v=video5`,
+      thumbnail: 'https://placehold.co/640x360?text=NPTEL',
+      channelTitle: 'NPTEL',
+      duration: '1:05:20',
+    },
+    {
+      id: 'video6',
+      title: `${topic} Exam-Oriented Deep Dive`,
+      link: `https://www.youtube.com/watch?v=video6`,
+      thumbnail: 'https://placehold.co/640x360?text=Unacademy',
+      channelTitle: 'Unacademy',
+      duration: '52:15',
     },
   ]
+
+  return mockVideos.slice(0, maxResults)
 }
 
 /**
@@ -172,40 +583,15 @@ function generateResourceLinks(
   topic: string,
   strategy: RecommendationStrategy
 ): ResourceLink[] {
-  const links: ResourceLink[] = []
+  const trustedResources = getTrustedResources(topic)
 
-  // Notes link
-  links.push({
-    type: 'notes',
-    title: `${topic} Study Notes`,
-    link: `https://www.google.com/search?q="${topic}+study+notes"`,
-  })
-
-  // Practice link
-  links.push({
-    type: 'practice',
-    title: `${topic} Practice Questions`,
-    link: `https://www.google.com/search?q="${topic}+practice+questions"`,
-  })
-
-  // Additional links based on strategy
-  if (strategy === 'advanced') {
-    links.push({
-      type: 'articles',
-      title: `${topic} Advanced Articles`,
-      link: `https://www.google.com/search?q="${topic}+advanced+concepts"`,
-    })
-  }
-
-  if (strategy === 'practice') {
-    links.push({
-      type: 'articles',
-      title: `${topic} Quiz & Assessments`,
-      link: `https://www.google.com/search?q="${topic}+quiz+test"`,
-    })
-  }
-
-  return links
+  return trustedResources.map((resource) => ({
+    type: resource.type,
+    title: resource.title,
+    source: resource.source,
+    description: resource.description,
+    previewUrl: `/api/resource-preview?id=${resource.id}&topic=${encodeURIComponent(topic)}`,
+  }))
 }
 
 /**
@@ -360,7 +746,7 @@ export async function getFinalRecommendation(
     const { strategy, message } = determineStrategy(userData)
 
     // Step 2: Fetch videos (parallel)
-    const videosPromise = fetchYouTubeVideos(userData.weakTopic)
+    const videosPromise = fetchYouTubeVideos(userData.weakTopic, DEFAULT_VIDEO_COUNT)
 
     // Step 3: Generate resource links (synchronous)
     const links = generateResourceLinks(userData.weakTopic, strategy)
@@ -370,11 +756,22 @@ export async function getFinalRecommendation(
 
     // Wait for async operations
     const [videos, notes] = await Promise.all([videosPromise, notesPromise])
+    
+    const topicTokens = tokenizeTopic(userData.weakTopic)
+    const requiredRelevanceScore = getRequiredRelevanceScore(topicTokens)
+    
+    const finalVideos = videos.filter((video) => {
+      const relevanceScore = getTopicRelevanceScore(
+        { ...video, relevanceText: `${video.title} ${video.channelTitle || ''}`.toLowerCase() },
+        topicTokens
+      )
+      return relevanceScore >= requiredRelevanceScore
+    })
 
     return {
       strategy,
       strategyMessage: message,
-      videos,
+      videos: finalVideos,
       links,
       notes,
       generatedAt: new Date().toISOString(),

@@ -4,8 +4,10 @@ import React, { useEffect, useMemo, useState } from 'react'
 import Recommendation from '@/components/recommendation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useSubjects } from '@/hooks/use-subjects'
+import { useAuth } from '@/lib/auth-context'
 
 /**
  * Example page showing how to use the Recommendation component
@@ -68,11 +70,31 @@ const scenarios: RecommendationScenario[] = [
 ]
 
 export default function RecommendationPage() {
+  const { user } = useAuth()
   const { subjects } = useSubjects()
   const [selectedScenario, setSelectedScenario] = useState<RecommendationScenario>(
     scenarios[0]
   )
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>('')
+  const [selectedTopic, setSelectedTopic] = useState<string>('')
+  const [showFirstRegistrationInfo, setShowFirstRegistrationInfo] = useState(false)
+
+  useEffect(() => {
+    if (!user || typeof window === 'undefined') {
+      setShowFirstRegistrationInfo(false)
+      return
+    }
+
+    const key = 'codebuddy:first-registration-user-id'
+    const storedUserId = window.localStorage.getItem(key)
+    const shouldShowInfo = storedUserId === String(user.id)
+
+    setShowFirstRegistrationInfo(shouldShowInfo)
+
+    if (shouldShowInfo) {
+      window.localStorage.removeItem(key)
+    }
+  }, [user])
 
   useEffect(() => {
     if (subjects.length === 0) {
@@ -91,7 +113,8 @@ export default function RecommendationPage() {
     [selectedSubjectId, subjects]
   )
 
-  const recommendationTopic = selectedSubject?.name || selectedScenario.weakTopic
+  const recommendationTopic =
+    selectedTopic.trim() || selectedSubject?.name || selectedScenario.weakTopic
 
   return (
     <div className="space-y-6 p-6">
@@ -106,52 +129,54 @@ export default function RecommendationPage() {
       </div>
 
       {/* Info Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">How it Works</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground space-y-2">
-            <p>✨ Our recommendation engine analyzes:</p>
-            <ul className="list-disc list-inside space-y-1">
-              <li>Your focus score</li>
-              <li>Current emotional state</li>
-              <li>Weak topics</li>
-              <li>Quiz performance</li>
-            </ul>
-          </CardContent>
-        </Card>
+      {showFirstRegistrationInfo && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">How it Works</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground space-y-2">
+              <p>✨ Our recommendation engine analyzes:</p>
+              <ul className="list-disc list-inside space-y-1">
+                <li>Your focus score</li>
+                <li>Current emotional state</li>
+                <li>Weak topics</li>
+                <li>Quiz performance</li>
+              </ul>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">What You Get</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground space-y-2">
-            <p>🎁 Each recommendation includes:</p>
-            <ul className="list-disc list-inside space-y-1">
-              <li>YouTube video tutorials</li>
-              <li>Practice resources</li>
-              <li>AI-generated notes</li>
-              <li>Study recommendations</li>
-            </ul>
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">What You Get</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground space-y-2">
+              <p>🎁 Each recommendation includes:</p>
+              <ul className="list-disc list-inside space-y-1">
+                <li>YouTube video tutorials</li>
+                <li>Practice resources</li>
+                <li>AI-generated notes</li>
+                <li>Study recommendations</li>
+              </ul>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Smart Strategies</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground space-y-2">
-            <p>🧠 Adaptive learning paths:</p>
-            <ul className="list-disc list-inside space-y-1">
-              <li>Easy (low focus)</li>
-              <li>Practice (low scores)</li>
-              <li>Video (bored)</li>
-              <li>Advanced (high performance)</li>
-            </ul>
-          </CardContent>
-        </Card>
-      </div>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">Smart Strategies</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground space-y-2">
+              <p>🧠 Adaptive learning paths:</p>
+              <ul className="list-disc list-inside space-y-1">
+                <li>Easy (low focus)</li>
+                <li>Practice (low scores)</li>
+                <li>Video (bored)</li>
+                <li>Advanced (high performance)</li>
+              </ul>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Subject Selector */}
       <Card>
@@ -167,24 +192,35 @@ export default function RecommendationPage() {
               No subjects found yet. Add subjects in Planner first, then come back here to generate resources.
             </p>
           ) : (
-            <div className="max-w-md">
-              <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select a subject" />
-                </SelectTrigger>
-                <SelectContent>
-                  {subjects.map((subject) => (
-                    <SelectItem key={subject.id} value={subject.id}>
-                      {subject.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <p className="mb-2 text-sm font-medium">Subject</p>
+                <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select a subject" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {subjects.map((subject) => (
+                      <SelectItem key={subject.id} value={subject.id}>
+                        {subject.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <p className="mb-2 text-sm font-medium">Topic</p>
+                <Input
+                  value={selectedTopic}
+                  onChange={(event) => setSelectedTopic(event.target.value)}
+                  placeholder="e.g. Derivatives, Trigonometry, Cell Division"
+                />
+              </div>
             </div>
           )}
-          {selectedSubject && (
+          {recommendationTopic && (
             <p className="text-sm text-muted-foreground">
-              Showing recommendations for <span className="font-medium text-foreground">{selectedSubject.name}</span>.
+              Suggesting resources for <span className="font-medium text-foreground">{recommendationTopic}</span>.
             </p>
           )}
         </CardContent>

@@ -33,6 +33,7 @@ import {
 // Cache recommendations for 5 minutes (in production, use Redis)
 const recommendationCache = new Map<string, { data: RecommendationResult; timestamp: number }>()
 const CACHE_DURATION_MS = 5 * 60 * 1000
+const RECOMMENDATION_CACHE_VERSION = 'v17'
 
 export async function POST(request: NextRequest) {
   try {
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
     const userData = validateUserData(body)
 
     // Generate cache key
-    const cacheKey = `${userData.weakTopic}-${userData.focusScore}-${userData.emotion}`
+    const cacheKey = `${RECOMMENDATION_CACHE_VERSION}-${userData.weakTopic}-${userData.focusScore}-${userData.emotion}`
 
     // Check cache
     const cached = recommendationCache.get(cacheKey)

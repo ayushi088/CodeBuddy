@@ -5,8 +5,15 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { RecommendationResult } from '@/lib/recommendationService'
-import { Loader2, AlertCircle, ExternalLink, BookOpen, Film, FileText } from 'lucide-react'
+import { Loader2, AlertCircle, ExternalLink, BookOpen, Film, FileText, PlayCircle } from 'lucide-react'
 
 interface RecommendationProps {
   focusScore: number
@@ -29,10 +36,42 @@ export default function Recommendation({
   const [error, setError] = useState<string | null>(null)
   const [recommendations, setRecommendations] = useState<RecommendationResult | null>(null)
   const [activeTab, setActiveTab] = useState('overview')
+  const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null)
+  const [previewResource, setPreviewResource] = useState<{
+    title: string
+    source: string
+    description: string
+    previewUrl: string
+  } | null>(null)
+
+  const getEmbeddableVideoId = useCallback((video: { id: string; link: string }) => {
+    const directIdPattern = /^[A-Za-z0-9_-]{11}$/
+    if (directIdPattern.test(video.id)) {
+      return video.id
+    }
+
+    try {
+      const url = new URL(video.link)
+      const idFromQuery = url.searchParams.get('v')
+      if (idFromQuery && directIdPattern.test(idFromQuery)) {
+        return idFromQuery
+      }
+
+      const embedMatch = url.pathname.match(/\/embed\/([A-Za-z0-9_-]{11})/)
+      if (embedMatch?.[1]) {
+        return embedMatch[1]
+      }
+    } catch {
+      return null
+    }
+
+    return null
+  }, [])
 
   const fetchRecommendations = useCallback(async () => {
     setLoading(true)
     setError(null)
+    setSelectedVideoId(null)
 
     try {
       const response = await fetch('/api/recommendation', {
@@ -80,14 +119,10 @@ export default function Recommendation({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-4 mb-4 md:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 mb-4 sm:grid-cols-3">
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground">Focus Score</p>
               <p className="text-lg font-semibold">{focusScore}%</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-sm text-muted-foreground">Emotion</p>
-              <p className="text-lg font-semibold capitalize">{emotion}</p>
             </div>
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground">Topic</p>
@@ -143,7 +178,7 @@ export default function Recommendation({
           {/* Tabs for Different Content Types */}
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="overview">Notes</TabsTrigger>
               <TabsTrigger value="videos">
                 <Film className="h-4 w-4 mr-2" />
                 Videos
@@ -171,7 +206,7 @@ export default function Recommendation({
             </TabsContent>
 
             {/* Videos Tab */}
-            <TabsContent value="videos" className="space-y-4">
+            <TabsContent value="videos" className="space-y-6">
               {recommendations.videos.length === 0 ? (
                 <Card>
                   <CardContent className="pt-6">
@@ -181,40 +216,81 @@ export default function Recommendation({
                   </CardContent>
                 </Card>
               ) : (
-                recommendations.videos.map((video) => (
-                  <Card key={video.id} className="hover:shadow-md transition-shadow">
-                    <CardContent className="pt-6">
-                      <div className="flex gap-4">
-                        {video.thumbnail && (
-                          <img
-                            src={video.thumbnail}
-                            alt={video.title}
-                            className="h-24 w-40 object-cover rounded"
+                <>
+                  {/* Embedded Video Player */}
+                  {selectedVideoId && (
+                    <Card className="border-2 border-blue-500">
+                      <CardHeader>
+                        <CardTitle className="text-base">
+                          {recommendations.videos.find(v => v.id === selectedVideoId)?.title || 'Video Player'}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="aspect-video w-full bg-black rounded-lg overflow-hidden">
+                          <iframe
+                            width="100%"
+                            height="100%"
+                            src={`https://www.youtube.com/embed/${selectedVideoId}?rel=0&modestbranding=1`}
+                            title="Video player"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                            className="w-full h-full"
                           />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <h4 className="font-semibold truncate hover:text-blue-600">
-                            {video.title}
-                          </h4>
-                          {video.duration && (
-                            <p className="text-sm text-muted-foreground">
-                              Duration: {video.duration}
-                            </p>
-                          )}
-                          <a
-                            href={video.link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:underline text-sm mt-2 inline-flex items-center gap-1"
-                          >
-                            Watch on YouTube
-                            <ExternalLink className="h-3 w-3" />
-                          </a>
                         </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
+                        <Button
+                          onClick={() => setSelectedVideoId(null)}
+                          variant="outline"
+                          className="mt-4"
+                        >
+                          Close Player
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Video List */}
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {recommendations.videos.map((video) => (
+                      <Card
+                        key={video.id}
+                        className="hover:shadow-md transition-shadow cursor-pointer"
+                        onClick={() => {
+                          const embedId = getEmbeddableVideoId(video)
+                          if (!embedId) {
+                            setError('This video is not embeddable right now. Please try another one.')
+                            return
+                          }
+                          setError(null)
+                          setSelectedVideoId(embedId)
+                        }}
+                      >
+                        <CardContent className="p-0 pb-3">
+                          <div className="aspect-video overflow-hidden rounded-t-lg bg-muted relative group">
+                            {video.thumbnail ? (
+                              <img
+                                src={video.thumbnail}
+                                alt={video.title}
+                                className="w-full h-full object-cover group-hover:opacity-80 transition-opacity"
+                              />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center bg-muted text-muted-foreground">
+                                <PlayCircle className="h-10 w-10" />
+                              </div>
+                            )}
+                            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/50">
+                              <PlayCircle className="h-12 w-12 text-white" />
+                            </div>
+                          </div>
+                          <div className="px-3 pt-2">
+                            <p className="font-semibold text-sm line-clamp-2 text-foreground hover:text-blue-600 transition-colors">
+                              {video.title}
+                            </p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </>
               )}
             </TabsContent>
 
@@ -229,34 +305,98 @@ export default function Recommendation({
                   </CardContent>
                 </Card>
               ) : (
-                recommendations.links.map((link, index) => (
-                  <Card key={index} className="hover:shadow-md transition-shadow">
-                    <CardContent className="pt-6">
-                      <div className="space-y-2">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <h4 className="font-semibold">{link.title}</h4>
-                            <p className="text-xs text-muted-foreground capitalize mt-1">
-                              Type: {link.type}
-                            </p>
-                          </div>
-                        </div>
-                        <a
-                          href={link.link}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:underline text-sm inline-flex items-center gap-1"
-                        >
-                          Open Resource
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                      Practice Sheets
+                    </h3>
+                    {recommendations.links
+                      .filter((link) => link.type === 'practice-sheet')
+                      .map((link, index) => (
+                        <Card key={`practice-sheet-${index}`} className="hover:shadow-md transition-shadow">
+                          <CardContent className="pt-6">
+                            <div className="space-y-3">
+                              <div>
+                                <h4 className="font-semibold">{link.title}</h4>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                  {link.source}
+                                </p>
+                                <p className="mt-2 text-sm text-muted-foreground">
+                                  {link.description}
+                                </p>
+                              </div>
+                              <Button
+                                variant="outline"
+                                className="w-full justify-center"
+                                onClick={() => setPreviewResource(link)}
+                              >
+                                Preview in app
+                                <ExternalLink className="ml-2 h-3 w-3" />
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                  </div>
+
+                  <div>
+                    <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                      Previous Year Question Papers
+                    </h3>
+                    {recommendations.links
+                      .filter((link) => link.type === 'previous-year-paper')
+                      .map((link, index) => (
+                        <Card key={`previous-paper-${index}`} className="hover:shadow-md transition-shadow">
+                          <CardContent className="pt-6">
+                            <div className="space-y-3">
+                              <div>
+                                <h4 className="font-semibold">{link.title}</h4>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                  {link.source}
+                                </p>
+                                <p className="mt-2 text-sm text-muted-foreground">
+                                  {link.description}
+                                </p>
+                              </div>
+                              <Button
+                                variant="outline"
+                                className="w-full justify-center"
+                                onClick={() => setPreviewResource(link)}
+                              >
+                                Preview in app
+                                <ExternalLink className="ml-2 h-3 w-3" />
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                  </div>
+                </div>
               )}
             </TabsContent>
           </Tabs>
+
+          <Dialog open={Boolean(previewResource)} onOpenChange={(open) => !open && setPreviewResource(null)}>
+            <DialogContent className="max-w-5xl h-[85vh] overflow-hidden p-0">
+              {previewResource && (
+                <div className="flex h-full flex-col">
+                  <DialogHeader className="border-b px-6 py-4 text-left">
+                    <DialogTitle>{previewResource.title}</DialogTitle>
+                    <DialogDescription>
+                      {previewResource.source} • {previewResource.description}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="flex-1 bg-muted/20">
+                    <iframe
+                      src={previewResource.previewUrl}
+                      className="h-full w-full"
+                      title={previewResource.title}
+                    />
+                  </div>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
 
           {/* Footer Info */}
           <Card className="bg-gray-50 dark:bg-gray-950">

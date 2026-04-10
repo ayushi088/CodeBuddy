@@ -42,6 +42,7 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
+const FIRST_REGISTRATION_USER_KEY = 'codebuddy:first-registration-user-id'
 
 const fetcher = async (url: string) => {
   const res = await fetch(url)
@@ -105,6 +106,10 @@ export function AuthProvider({ children, initialUser }: AuthProviderProps) {
       
       if (!res.ok) {
         return { error: data.error || 'Registration failed' }
+      }
+
+      if (typeof window !== 'undefined' && data.user?.id) {
+        window.localStorage.setItem(FIRST_REGISTRATION_USER_KEY, String(data.user.id))
       }
       
       await mutate(data.user)
