@@ -10,6 +10,8 @@ interface AnalyzeApiResponse {
     y2: number
   }
   eye_contact?: boolean
+  eyes_open?: boolean
+  eye_landmarks_detected?: boolean
   eye_contact_score?: number
   is_looking_away?: boolean
   blink_detected?: boolean
@@ -52,6 +54,8 @@ export interface EmotionData {
     y2: number
   }
   eye_contact?: boolean
+  eyes_open?: boolean
+  eye_landmarks_detected?: boolean
   eye_contact_score?: number
   is_looking_away?: boolean
   blink_detected?: boolean
@@ -135,6 +139,8 @@ export const detectEmotionFromImage = async (imageData: string | Blob): Promise<
       face_area_ratio: result.face_area_ratio,
       face_bbox: result.face_bbox,
       eye_contact: result.eye_contact,
+      eyes_open: result.eyes_open,
+      eye_landmarks_detected: result.eye_landmarks_detected,
       eye_contact_score: result.eye_contact_score,
       is_looking_away: result.is_looking_away,
       blink_detected: result.blink_detected,

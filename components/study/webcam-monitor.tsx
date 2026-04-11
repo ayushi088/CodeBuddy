@@ -7,12 +7,16 @@ import { Camera, CameraOff, RefreshCw, AlertCircle, AlertTriangle } from 'lucide
 import { detectEmotionFromImage } from '@/lib/emotion-detection'
 import { audioNotifications, preloadVoices } from '@/lib/audio-notifications'
 
+const ANALYSIS_INTERVAL_MS = 1000
+const EYES_CLOSED_ALERT_SECONDS = 10
+
 interface WebcamMonitorProps {
   className?: string
   isActive: boolean
   onFocusUpdate: (score: number, metrics: {
     faceDetected: boolean
     eyesOpen: boolean
+    eyeLandmarksDetected?: boolean
     lookingAtScreen: boolean
     livenessSuspicious?: boolean
     motionScore?: number
@@ -46,6 +50,7 @@ export function WebcamMonitor({ className, isActive, onFocusUpdate }: WebcamMoni
   const previousMotionFrameRef = useRef<Uint8Array | null>(null)
   const previousFacePatchRef = useRef<Uint8Array | null>(null)
   const livenessWindowRef = useRef<Array<{ motion: number; blink: boolean; eyeContact: boolean }>>([])
+  const lastReliableEyesOpenRef = useRef(true)
 
   const getCameraSupportError = useCallback(() => {
     if (typeof window === 'undefined') {
@@ -285,13 +290,27 @@ export function WebcamMonitor({ className, isActive, onFocusUpdate }: WebcamMoni
             emotionData.status === 'Unknown User' ||
             Boolean(emotionData.alerts?.some((alert) => alert.code === 'UNKNOWN_USER'))
           const backendLivenessFailed = faceDetected && emotionData.liveness_check === false
-          const eyesOpen = emotionData.blink_detected !== true
+          const eyesClosedByAlert = Boolean(
+            emotionData.alerts?.some((alert) => alert.code === 'EYES_CLOSED')
+          )
+          const eyeLandmarksDetected = emotionData.eye_landmarks_detected !== false
+          const eyesOpen =
+            eyesClosedByAlert
+              ? false
+              : !eyeLandmarksDetected
+              ? lastReliableEyesOpenRef.current
+              : emotionData.eyes_open !== undefined
+              ? emotionData.eyes_open
+              : emotionData.blink_detected !== true
+          if (eyeLandmarksDetected) {
+            lastReliableEyesOpenRef.current = eyesOpen
+          }
           const motionScore = computeMotionScore()
           const facePatchMotion = computeFacePatchMotion(emotionData.face_bbox)
           const tinyFaceRatio =
             typeof emotionData.face_area_ratio === 'number' && emotionData.face_area_ratio > 0
-              // Avoid false positives from normal laptop distance while still flagging very small face boxes.
-              ? emotionData.face_area_ratio < 0.06
+              // Treat tiny face boxes without stable eye landmarks as likely spoof/far-camera frames.
+              ? emotionData.face_area_ratio < 0.10 && emotionData.eye_landmarks_detected === false
               : false
 
           if (tinyFaceRatio) {
@@ -360,6 +379,7 @@ export function WebcamMonitor({ className, isActive, onFocusUpdate }: WebcamMoni
           const metrics = {
             faceDetected,
             eyesOpen,
+            eyeLandmarksDetected,
             lookingAtScreen,
             livenessSuspicious,
             motionScore,
@@ -387,10 +407,9 @@ export function WebcamMonitor({ className, isActive, onFocusUpdate }: WebcamMoni
           }
 
           // Track eyes closed consecutive failures
-          if (faceDetected && !eyesOpen) {
+          if (faceDetected && eyeLandmarksDetected && !eyesOpen) {
             eyesClosedCountRef.current += 1
-            // Alert after ~30 seconds (1-2 checks at 20-second intervals)
-            if (eyesClosedCountRef.current >= 2 && !eyesAlertTriggeredRef.current) {
+            if (eyesClosedCountRef.current >= EYES_CLOSED_ALERT_SECONDS && !eyesAlertTriggeredRef.current) {
               eyesAlertTriggeredRef.current = true
               audioNotifications.eyesClosed()
             }
@@ -446,7 +465,7 @@ export function WebcamMonitor({ className, isActive, onFocusUpdate }: WebcamMoni
           if (!faceDetected) {
             score = 0
           } else {
-            if (!eyesOpen) score -= 25
+            if (eyeLandmarksDetected && !eyesOpen) score -= 25
             if (!lookingAtScreen) score -= 15
           }
 
@@ -463,11 +482,11 @@ export function WebcamMonitor({ className, isActive, onFocusUpdate }: WebcamMoni
       }
     }
 
-    // Analyze every 1 second for near real-time mood updates
-    const interval = setInterval(analyzeFrame, 1000)
+    // Analyze every second for near real-time mood updates.
+    const interval = setInterval(analyzeFrame, ANALYSIS_INTERVAL_MS)
     
-    // Initial analysis after 1 second
-    const timeout = setTimeout(analyzeFrame, 1000)
+    // Initial analysis after one interval.
+    const timeout = setTimeout(analyzeFrame, ANALYSIS_INTERVAL_MS)
     
     return () => {
       clearInterval(interval)

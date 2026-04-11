@@ -53,6 +53,8 @@ interface Alert {
   timestamp: Date
 }
 
+const EYES_CLOSED_ALERT_SECONDS = 10
+
 export function StudySessionContent() {
   const containerRef = useRef<HTMLDivElement>(null)
   const [status, setStatus] = useState<SessionStatus>('setup')
@@ -65,6 +67,7 @@ export function StudySessionContent() {
   const [liveMetrics, setLiveMetrics] = useState({
     faceDetected: false,
     eyesOpen: false,
+    eyeLandmarksDetected: false,
     lookingAtScreen: false,
   })
   
@@ -602,6 +605,7 @@ export function StudySessionContent() {
   const handleFocusUpdate = useCallback((newScore: number, metrics: {
     faceDetected: boolean
     eyesOpen: boolean
+    eyeLandmarksDetected?: boolean
     lookingAtScreen: boolean
     livenessSuspicious?: boolean
     motionScore?: number
@@ -627,6 +631,7 @@ export function StudySessionContent() {
       setLiveMetrics({
         faceDetected: false,
         eyesOpen: false,
+        eyeLandmarksDetected: false,
         lookingAtScreen: false,
       })
 
@@ -667,6 +672,7 @@ export function StudySessionContent() {
     setLiveMetrics({
       faceDetected: metrics.faceDetected,
       eyesOpen: metrics.eyesOpen,
+      eyeLandmarksDetected: metrics.eyeLandmarksDetected !== false,
       lookingAtScreen: metrics.lookingAtScreen,
     })
     if (emotionDetectionEnabled) {
@@ -693,7 +699,7 @@ export function StudySessionContent() {
       !attendanceMarked &&
       getSessionTimingState(selectedSession) === 'active'
     ) {
-      if (metrics.faceDetected) {
+      if (metrics.faceDetected && metrics.eyesOpen) {
         const { start } = getSessionBounds(selectedSession)
         const joinedLate = now.getTime() > start.getTime() + 5 * 60 * 1000
         setAttendanceStatus(joinedLate ? 'late' : 'present')
@@ -701,14 +707,18 @@ export function StudySessionContent() {
         setAttendanceInProgress(false)
         setAttendanceMessage('Attendance Marked Successfully')
       } else {
-        setAttendanceMessage('Face not detected yet. Please stay visible to the webcam.')
+        setAttendanceMessage(
+          metrics.faceDetected
+            ? 'Face detected but eyes are closed. Please keep your eyes open for attendance capture.'
+            : 'Face not detected yet. Please stay visible to the webcam.'
+        )
       }
       return
     }
     
     // Generate alerts only for sustained conditions and once per continuous event.
     const missingFaceThreshold = 2
-    const eyesClosedThreshold = 3
+    const eyesClosedThreshold = EYES_CLOSED_ALERT_SECONDS
     const lookingAwayThreshold = 2
 
     if (!metrics.faceDetected) {
@@ -729,14 +739,14 @@ export function StudySessionContent() {
       faceMissingStreakRef.current = 0
       faceMissingAlertActiveRef.current = false
 
-      if (!metrics.eyesOpen) {
+      if ((metrics.eyeLandmarksDetected !== false) && !metrics.eyesOpen) {
         eyesClosedStreakRef.current += 1
         if (
           eyesClosedStreakRef.current >= eyesClosedThreshold &&
           !eyesClosedAlertActiveRef.current
         ) {
           eyesClosedAlertActiveRef.current = true
-          addAlert('info', 'Eyes appear closed - Taking a break?')
+          addAlert('warning', 'Sleeping alert: eyes closed for 10 seconds. Please wake up and refocus.')
         }
       } else {
         eyesClosedStreakRef.current = 0
@@ -1128,8 +1138,20 @@ export function StudySessionContent() {
                   <MetricCard
                     icon={Eye}
                     label="Eyes Status"
-                    value={liveMetrics.faceDetected ? (liveMetrics.eyesOpen ? 'Open' : 'Closed') : 'No face'}
-                    color={liveMetrics.faceDetected ? (liveMetrics.eyesOpen ? 'success' : 'warning') : 'destructive'}
+                    value={
+                      liveMetrics.faceDetected
+                        ? (liveMetrics.eyeLandmarksDetected
+                          ? (liveMetrics.eyesOpen ? 'Open' : 'Closed')
+                          : 'Detecting')
+                        : 'No face'
+                    }
+                    color={
+                      liveMetrics.faceDetected
+                        ? (liveMetrics.eyeLandmarksDetected
+                          ? (liveMetrics.eyesOpen ? 'success' : 'warning')
+                          : 'primary')
+                        : 'destructive'
+                    }
                   />
                   <MetricCard
                     icon={Camera}

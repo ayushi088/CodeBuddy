@@ -90,9 +90,11 @@ export async function POST(request: NextRequest) {
 function getSimulatedAnalysis() {
   const baseScore = 70 + Math.random() * 20
   const isLookingAway = Math.random() < 0.1
+  const eyesOpen = Math.random() < 0.9
   
   return {
     face_detected: true,
+    eyes_open: eyesOpen,
     eye_contact: !isLookingAway,
     eye_contact_score: isLookingAway ? 0.3 : 0.7 + Math.random() * 0.25,
     emotion: ['focused', 'neutral', 'happy'][Math.floor(Math.random() * 3)],
@@ -110,7 +112,7 @@ function getSimulatedAnalysis() {
       code: 'LOOKING_AWAY'
     }] : [],
     liveness_check: true,
-    blink_detected: Math.random() < 0.15,
+    blink_detected: !eyesOpen,
     simulated: true,
     ai_source: 'simulated',
   }
