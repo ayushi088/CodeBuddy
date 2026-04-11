@@ -33,7 +33,7 @@ import {
 // Cache recommendations for 5 minutes (in production, use Redis)
 const recommendationCache = new Map<string, { data: RecommendationResult; timestamp: number }>()
 const CACHE_DURATION_MS = 5 * 60 * 1000
-const RECOMMENDATION_CACHE_VERSION = 'v17'
+const RECOMMENDATION_CACHE_VERSION = 'v25'
 
 export async function POST(request: NextRequest) {
   try {

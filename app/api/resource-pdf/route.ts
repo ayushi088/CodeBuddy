@@ -140,29 +140,58 @@ function sanitizeFileNamePart(value: string): string {
     ]
 }
 
-  function buildTrustedPdfLines(topic: string, type: ResourceType): string[] {
-    const heading = type === 'previous-year-paper'
-      ? `${topic.toUpperCase()} - TRUSTED PREVIOUS YEAR QUESTION SOURCES`
-      : `${topic.toUpperCase()} - TRUSTED PRACTICE SHEET SOURCES`
+function buildTrustedPdfLines(topic: string, type: ResourceType, selectedSource?: string): string[] {
+  const resources = getTrustedResources(topic, type)
+  const trustedSources = selectedSource || resources.map((resource) => resource.source).join(', ')
 
-    const resources = getTrustedResources(topic, type)
-    const lines = [heading, '']
-
-    for (const resource of resources) {
-      lines.push(`${resource.source}: ${resource.title}`)
-      lines.push(`Link: ${resource.url}`)
-      lines.push(`Note: ${resource.note}`)
-      lines.push('')
-    }
-
-    lines.push('Tip: Open these sources to access official or reputable practice material.')
-    return lines
+  if (type === 'previous-year-paper') {
+    return [
+      `${topic.toUpperCase()} - PREVIOUS YEAR QUESTION SET`,
+      `Reference Sources: ${trustedSources}`,
+      '',
+      'SECTION A (Concept Checks)',
+      `1. Define ${topic} and list two core properties.`,
+      `2. Explain one common misconception in ${topic}.`,
+      '',
+      'SECTION B (Application)',
+      `3. Solve one exam-style problem based on ${topic} with full steps.`,
+      `4. Compare two approaches used in ${topic} and justify the better one.`,
+      '',
+      'SECTION C (Higher Order)',
+      `5. Create and solve a mixed-concept question involving ${topic}.`,
+      `6. Analyze where students usually lose marks in ${topic} questions.`,
+      '',
+      'Instructions: Show complete steps and reasoning for every answer.',
+      'Prepared from trusted educational source patterns for exam readiness.',
+    ]
   }
+
+  return [
+    `${topic.toUpperCase()} - PRACTICE SHEET`,
+    `Reference Sources: ${trustedSources}`,
+    '',
+    'PART 1 (Fundamentals)',
+    `1. Write key definitions and formulas used in ${topic}.`,
+    `2. Solve two short concept questions on ${topic}.`,
+    '',
+    'PART 2 (Problem Solving)',
+    `3. Solve three standard problems from ${topic}.`,
+    `4. Solve one case-based question and explain each step.`,
+    '',
+    'PART 3 (Revision)',
+    `5. Write a quick checklist to revise ${topic} in 10 minutes.`,
+    `6. List two mistakes to avoid while solving ${topic} problems.`,
+    '',
+    'Use this sheet for self-practice and timed revision.',
+  ]
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const topic = (searchParams.get('topic') || '').trim()
   const typeParam = searchParams.get('type') || 'practice-sheet'
+  const dispositionParam = (searchParams.get('disposition') || 'inline').toLowerCase()
+  const sourceParam = (searchParams.get('source') || '').trim()
 
   if (!topic) {
     return NextResponse.json({ error: 'topic is required' }, { status: 400 })
@@ -173,17 +202,20 @@ export async function GET(request: NextRequest) {
   }
 
   const type = typeParam as ResourceType
-  const lines = buildTrustedPdfLines(topic, type)
+  const lines = buildTrustedPdfLines(topic, type, sourceParam || undefined)
   const pdfBytes = buildPdfContent(lines)
 
   const safeTopic = sanitizeFileNamePart(topic)
   const fileName = `${type}-${safeTopic}.pdf`
+  const contentDisposition = dispositionParam === 'attachment'
+    ? `attachment; filename="${fileName}"`
+    : `inline; filename="${fileName}"`
 
   return new NextResponse(pdfBytes, {
     status: 200,
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="${fileName}"`,
+      'Content-Disposition': contentDisposition,
       'Cache-Control': 'no-store',
     },
   })

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -37,12 +37,17 @@ export default function Recommendation({
   const [recommendations, setRecommendations] = useState<RecommendationResult | null>(null)
   const [activeTab, setActiveTab] = useState('overview')
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null)
-  const [previewResource, setPreviewResource] = useState<{
+  const [selectedResource, setSelectedResource] = useState<{
     title: string
     source: string
     description: string
-    previewUrl: string
+    link: string
+    type: 'practice-sheet' | 'previous-year-paper'
   } | null>(null)
+
+  const getProxyPdfUrl = useCallback((pdfUrl: string) => {
+    return `/api/pdf-proxy?url=${encodeURIComponent(pdfUrl)}`
+  }, [])
 
   const getEmbeddableVideoId = useCallback((video: { id: string; link: string }) => {
     const directIdPattern = /^[A-Za-z0-9_-]{11}$/
@@ -105,6 +110,16 @@ export default function Recommendation({
     }
   }, [focusScore, emotion, weakTopic, quizScore, difficulty, onRecommendationsFetched])
 
+  useEffect(() => {
+    setRecommendations(null)
+    setSelectedVideoId(null)
+    setSelectedResource(null)
+    setError(null)
+    setActiveTab('overview')
+  }, [focusScore, emotion, weakTopic, quizScore, difficulty])
+
+  const hasTopic = weakTopic.trim().length > 0
+
   return (
     <div className="w-full space-y-6">
       {/* Header Card */}
@@ -136,7 +151,7 @@ export default function Recommendation({
 
           <Button
             onClick={fetchRecommendations}
-            disabled={loading}
+            disabled={loading || !hasTopic}
             className="w-full"
             size="lg"
           >
@@ -149,6 +164,11 @@ export default function Recommendation({
               'Get Recommendations'
             )}
           </Button>
+          {!hasTopic && (
+            <p className="mt-2 text-sm text-muted-foreground">
+              Enter a topic to generate recommendations.
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -300,7 +320,7 @@ export default function Recommendation({
                 <Card>
                   <CardContent className="pt-6">
                     <p className="text-center text-muted-foreground">
-                      No resources found.
+                      No trusted topic-specific resources found yet for this topic.
                     </p>
                   </CardContent>
                 </Card>
@@ -328,9 +348,9 @@ export default function Recommendation({
                               <Button
                                 variant="outline"
                                 className="w-full justify-center"
-                                onClick={() => setPreviewResource(link)}
+                                onClick={() => setSelectedResource(link)}
                               >
-                                Preview in app
+                                Open Practice Sheet PDF
                                 <ExternalLink className="ml-2 h-3 w-3" />
                               </Button>
                             </div>
@@ -361,9 +381,9 @@ export default function Recommendation({
                               <Button
                                 variant="outline"
                                 className="w-full justify-center"
-                                onClick={() => setPreviewResource(link)}
+                                onClick={() => setSelectedResource(link)}
                               >
-                                Preview in app
+                                Open Previous Year Questions PDF
                                 <ExternalLink className="ml-2 h-3 w-3" />
                               </Button>
                             </div>
@@ -376,21 +396,21 @@ export default function Recommendation({
             </TabsContent>
           </Tabs>
 
-          <Dialog open={Boolean(previewResource)} onOpenChange={(open) => !open && setPreviewResource(null)}>
+          <Dialog open={Boolean(selectedResource)} onOpenChange={(open) => !open && setSelectedResource(null)}>
             <DialogContent className="max-w-5xl h-[85vh] overflow-hidden p-0">
-              {previewResource && (
+              {selectedResource && (
                 <div className="flex h-full flex-col">
                   <DialogHeader className="border-b px-6 py-4 text-left">
-                    <DialogTitle>{previewResource.title}</DialogTitle>
+                    <DialogTitle>{selectedResource.title}</DialogTitle>
                     <DialogDescription>
-                      {previewResource.source} • {previewResource.description}
+                      {selectedResource.source} • {selectedResource.description}
                     </DialogDescription>
                   </DialogHeader>
                   <div className="flex-1 bg-muted/20">
                     <iframe
-                      src={previewResource.previewUrl}
+                      src={getProxyPdfUrl(selectedResource.link)}
                       className="h-full w-full"
-                      title={previewResource.title}
+                      title={selectedResource.title}
                     />
                   </div>
                 </div>

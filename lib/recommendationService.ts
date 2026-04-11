@@ -1,5 +1,4 @@
 import { HfInference } from '@huggingface/inference'
-import { getTrustedResources } from '@/lib/trustedResources'
 
 /**
  * Recommendation Strategy Types
@@ -22,11 +21,11 @@ export interface VideoResult {
  * Resource Link
  */
 export interface ResourceLink {
-  type: 'notes' | 'practice' | 'practice-sheet' | 'previous-year-paper' | 'articles'
+  type: 'practice-sheet' | 'previous-year-paper'
   title: string
   source: string
   description: string
-  previewUrl: string
+  link: string
 }
 
 /**
@@ -579,19 +578,356 @@ function getMockYouTubeVideos(topic: string, maxResults: number = DEFAULT_VIDEO_
 /**
  * Google Resource Links Generator
  */
-function generateResourceLinks(
+async function generateResourceLinks(
   topic: string,
-  strategy: RecommendationStrategy
-): ResourceLink[] {
-  const trustedResources = getTrustedResources(topic)
+  _strategy: RecommendationStrategy
+): Promise<ResourceLink[]> {
+  const safeTopic = topic.trim() || 'mathematics'
+  const normalizedTopic = safeTopic.toLowerCase()
 
-  return trustedResources.map((resource) => ({
-    type: resource.type,
-    title: resource.title,
-    source: resource.source,
-    description: resource.description,
-    previewUrl: `/api/resource-preview?id=${resource.id}&topic=${encodeURIComponent(topic)}`,
+  const multithreadingPracticeSheets: ResourceLink[] = [
+    {
+      type: 'practice-sheet',
+      title: `${safeTopic} Practice Sheet - Stanford CS110`,
+      source: 'Stanford University',
+      description: 'Lecture notes introducing multithreading, threads, and synchronization.',
+      link: 'https://web.stanford.edu/class/cs110/lectures/cs110-win2122-lecture-13.pdf',
+    },
+    {
+      type: 'practice-sheet',
+      title: `${safeTopic} Practice Sheet - Virginia Tech CS3214`,
+      source: 'Virginia Tech',
+      description: 'University lecture notes covering core multithreading concepts.',
+      link: 'https://courses.cs.vt.edu/cs3214/spring2025/lecturesarb/intro_to_multithreading.pdf',
+    },
+    {
+      type: 'practice-sheet',
+      title: `${safeTopic} Practice Sheet - UCSD Multithreading`,
+      source: 'University of California, San Diego',
+      description: 'Slides covering multiprocessors and multithreading concepts.',
+      link: 'https://cseweb.ucsd.edu/classes/wi13/cse141-b/slides/10-Multithreading.pdf',
+    },
+  ]
+
+  const multithreadingPreviousYearQuestions: ResourceLink[] = [
+    {
+      type: 'previous-year-paper',
+      title: `${safeTopic} Previous Year Questions - Stanford Threads and Mutexes`,
+      source: 'Stanford University',
+      description: 'Lecture material with thread coordination and mutex practice questions.',
+      link: 'https://web.stanford.edu/class/cs110/lectures/cs110-win2122-lecture-14.pdf',
+    },
+    {
+      type: 'previous-year-paper',
+      title: `${safeTopic} Previous Year Questions - University of Pennsylvania`,
+      source: 'University of Pennsylvania',
+      description: 'Multithreading lecture material with exam-style discussion of thread scheduling.',
+      link: 'https://acg.cis.upenn.edu/milom/cis501-Fall08/lectures/10_multithreading.pdf',
+    },
+    {
+      type: 'previous-year-paper',
+      title: `${safeTopic} Previous Year Questions - University of Toronto`,
+      source: 'University of Toronto',
+      description: 'Threads lecture notes focused on multithreaded programming concepts.',
+      link: 'https://www.cs.toronto.edu/~hesam/Teaching/CSC207-Summer-2011/lectures/w11/Threads.pdf',
+    },
+  ]
+
+  const setsPracticeSheets: ResourceLink[] = [
+    {
+      type: 'practice-sheet',
+      title: `${safeTopic} Practice Sheet - NCERT Exemplar`,
+      source: 'NCERT',
+      description: 'Official exemplar problems for Class XI Mathematics: Sets.',
+      link: 'https://ncert.nic.in/pdf/publication/exemplarproblem/classXI/mathematics/keep201.pdf',
+    },
+    {
+      type: 'practice-sheet',
+      title: `${safeTopic} Practice Sheet - University of Maryland`,
+      source: 'University of Maryland',
+      description: 'Trusted university notes on sets and proofs with direct topic coverage.',
+      link: 'https://www.math.umd.edu/~immortal/CMSC250/notes/sets.pdf',
+    },
+    {
+      type: 'practice-sheet',
+      title: `${safeTopic} Practice Sheet - University of Toronto`,
+      source: 'University of Toronto',
+      description: 'Academic set theory notes suitable for practice and revision.',
+      link: 'https://www.math.toronto.edu/weiss/set_theory.pdf',
+    },
+  ]
+
+  const setsPreviousYearQuestions: ResourceLink[] = [
+    {
+      type: 'previous-year-paper',
+      title: `${safeTopic} Previous Year Questions - NTA Mathematics Core`,
+      source: 'National Testing Agency',
+      description: 'Question paper containing mathematics items related to sets.',
+      link: 'https://nta.ac.in/Download/ExamPaper/Paper_20230320093216.pdf',
+    },
+    {
+      type: 'previous-year-paper',
+      title: `${safeTopic} Previous Year Questions - NTA Paper`,
+      source: 'National Testing Agency',
+      description: 'Official exam paper with set-based mathematics questions.',
+      link: 'https://nta.ac.in/Download/ExamPaper/Paper_20250530112357.pdf',
+    },
+    {
+      type: 'previous-year-paper',
+      title: `${safeTopic} Previous Year Questions - NTA Mathematics Section A`,
+      source: 'National Testing Agency',
+      description: 'Mathematics section paper with topic-relevant set questions.',
+      link: 'https://nta.ac.in/Download/ExamPaper/Paper_20250728134957.pdf',
+    },
+  ]
+
+  if (normalizedTopic.includes('multithread') || normalizedTopic.includes('thread') || normalizedTopic.includes('concurrency') || normalizedTopic.includes('parallel') || normalizedTopic.includes('mutex') || normalizedTopic.includes('deadlock') || normalizedTopic.includes('synchron')) {
+    return [...multithreadingPracticeSheets, ...multithreadingPreviousYearQuestions]
+  }
+
+  if (normalizedTopic.includes('set')) {
+    return [...setsPracticeSheets, ...setsPreviousYearQuestions]
+  }
+
+  return fetchDynamicTopicResources(safeTopic)
+}
+
+function isTrustedPdfHost(hostname: string): boolean {
+  const host = hostname.toLowerCase()
+
+  if (
+    host.endsWith('.edu') ||
+    host.endsWith('.ac.in') ||
+    host === 'ncert.nic.in' ||
+    host === 'nta.ac.in' ||
+    host === 'arxiv.org' ||
+    host === 'export.arxiv.org' ||
+    host.endsWith('.nptel.ac.in') ||
+    host === 'nptel.ac.in'
+  ) {
+    return true
+  }
+
+  return false
+}
+
+function parseDuckDuckGoPdfUrls(html: string): string[] {
+  const candidates = new Set<string>()
+  const matches = Array.from(html.matchAll(/uddg=([^&"']+)/g))
+
+  for (const match of matches) {
+    try {
+      const decoded = decodeURIComponent(match[1])
+      const url = new URL(decoded)
+      const looksLikePdf = url.pathname.toLowerCase().endsWith('.pdf') || decoded.toLowerCase().includes('.pdf')
+
+      if (url.protocol === 'https:' && looksLikePdf && isTrustedPdfHost(url.hostname)) {
+        candidates.add(url.toString())
+      }
+    } catch {
+      // Ignore malformed URLs from scraped HTML fragments.
+    }
+  }
+
+  return Array.from(candidates)
+}
+
+function sourceNameFromUrl(pdfUrl: string): string {
+  try {
+    const host = new URL(pdfUrl).hostname.toLowerCase()
+    if (host.includes('stanford')) return 'Stanford University'
+    if (host.includes('mit.edu')) return 'MIT'
+    if (host.includes('nptel')) return 'NPTEL'
+    if (host.includes('ncert')) return 'NCERT'
+    if (host.includes('nta.ac.in')) return 'National Testing Agency'
+    if (host.includes('arxiv.org')) return 'arXiv'
+    if (host.includes('toronto')) return 'University of Toronto'
+    if (host.includes('umd.edu')) return 'University of Maryland'
+    if (host.includes('washington.edu')) return 'University of Washington'
+    if (host.includes('ucsd.edu')) return 'University of California, San Diego'
+    if (host.includes('upenn.edu')) return 'University of Pennsylvania'
+    if (host.includes('vt.edu')) return 'Virginia Tech'
+    return host.replace(/^www\./, '')
+  } catch {
+    return 'Trusted Source'
+  }
+}
+
+async function searchTrustedPdfs(query: string, limit: number): Promise<string[]> {
+  try {
+    const response = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        Accept: 'text/html',
+      },
+      cache: 'no-store',
+    })
+
+    if (!response.ok) {
+      return []
+    }
+
+    const html = await response.text()
+    return parseDuckDuckGoPdfUrls(html).slice(0, limit)
+  } catch {
+    return []
+  }
+}
+
+async function fetchDynamicTopicResources(topic: string): Promise<ResourceLink[]> {
+  const practiceQuery = `${topic} filetype:pdf lecture notes worksheet site:.edu OR site:.ac.in OR site:nptel.ac.in`
+  const questionQuery = `${topic} filetype:pdf question paper assignment exam site:.edu OR site:.ac.in OR site:nta.ac.in OR site:nptel.ac.in`
+
+  let [practicePdfUrls, questionPdfUrls] = await Promise.all([
+    searchTrustedPdfs(practiceQuery, 3),
+    searchTrustedPdfs(questionQuery, 3),
+  ])
+
+  if (practicePdfUrls.length === 0 && questionPdfUrls.length === 0) {
+    const arxivPdfUrls = await fetchArxivPdfUrls(topic, 6)
+    practicePdfUrls = arxivPdfUrls.slice(0, 3)
+    questionPdfUrls = arxivPdfUrls.slice(3, 6)
+  }
+
+  if (questionPdfUrls.length === 0 && practicePdfUrls.length > 0) {
+    questionPdfUrls = practicePdfUrls.slice(0, Math.min(2, practicePdfUrls.length))
+  }
+
+  if (practicePdfUrls.length === 0 && questionPdfUrls.length > 0) {
+    practicePdfUrls = questionPdfUrls.slice(0, Math.min(2, questionPdfUrls.length))
+  }
+
+  const seenUrls = new Set<string>()
+  practicePdfUrls = practicePdfUrls.filter((url) => {
+    if (seenUrls.has(url)) return false
+    seenUrls.add(url)
+    return true
+  })
+
+  questionPdfUrls = questionPdfUrls.filter((url) => {
+    if (seenUrls.has(url)) return false
+    seenUrls.add(url)
+    return true
+  })
+
+  const practiceLinks: ResourceLink[] = practicePdfUrls.map((pdfUrl, index) => ({
+    type: 'practice-sheet',
+    title: `${topic} Practice Sheet ${index + 1}`,
+    source: sourceNameFromUrl(pdfUrl),
+    description: `Trusted PDF practice material for ${topic}.`,
+    link: pdfUrl,
   }))
+
+  const previousYearLinks: ResourceLink[] = questionPdfUrls.map((pdfUrl, index) => ({
+    type: 'previous-year-paper',
+    title: `${topic} Previous Year Questions ${index + 1}`,
+    source: sourceNameFromUrl(pdfUrl),
+    description: `Trusted PDF question paper or assignment material for ${topic}.`,
+    link: pdfUrl,
+  }))
+
+  return [...practiceLinks, ...previousYearLinks]
+}
+
+function stripHtmlTags(value: string): string {
+  return value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function decodeXmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+}
+
+function extractTagValue(entryXml: string, tagName: string): string {
+  const regex = new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'i')
+  const match = entryXml.match(regex)
+  if (!match?.[1]) {
+    return ''
+  }
+
+  return decodeXmlEntities(stripHtmlTags(match[1]))
+}
+
+function tokenizeSimple(value: string): string[] {
+  return (value.toLowerCase().match(/[a-z0-9]+/g) || []).filter((token) => token.length >= 3)
+}
+
+function scoreArxivEntryRelevance(topicTokens: string[], title: string, summary: string): number {
+  const combined = `${title} ${summary}`.toLowerCase()
+  let score = 0
+
+  for (const token of topicTokens) {
+    if (combined.includes(token)) {
+      score += 1
+    }
+  }
+
+  return score
+}
+
+async function fetchArxivPdfUrls(topic: string, limit: number): Promise<string[]> {
+  try {
+    const query = `all:${topic}`
+    const url = `https://export.arxiv.org/api/query?search_query=${encodeURIComponent(query)}&start=0&max_results=${Math.max(limit * 3, 12)}`
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'application/atom+xml,text/xml',
+      },
+      cache: 'no-store',
+    })
+
+    if (!response.ok) {
+      return []
+    }
+
+    const xml = await response.text()
+    const entryMatches = Array.from(xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g))
+    const topicTokens = tokenizeSimple(topic)
+
+    const ranked = entryMatches
+      .map((match) => match[1])
+      .map((entryXml) => {
+        const id = extractTagValue(entryXml, 'id')
+        const title = extractTagValue(entryXml, 'title')
+        const summary = extractTagValue(entryXml, 'summary')
+
+        if (!id) {
+          return null
+        }
+
+        const absUrl = id.trim().replace('http://', 'https://')
+        const pdfUrl = absUrl.replace('/abs/', '/pdf/') + '.pdf'
+        const score = scoreArxivEntryRelevance(topicTokens, title, summary)
+
+        return { pdfUrl, score }
+      })
+      .filter((entry): entry is { pdfUrl: string; score: number } => Boolean(entry))
+      .filter((entry) => entry.score > 0)
+      .sort((a, b) => b.score - a.score)
+
+    const unique = new Set<string>()
+    const urls: string[] = []
+
+    for (const entry of ranked) {
+      if (!unique.has(entry.pdfUrl)) {
+        unique.add(entry.pdfUrl)
+        urls.push(entry.pdfUrl)
+      }
+
+      if (urls.length >= limit) {
+        break
+      }
+    }
+
+    return urls
+  } catch {
+    return []
+  }
 }
 
 /**
@@ -748,14 +1084,14 @@ export async function getFinalRecommendation(
     // Step 2: Fetch videos (parallel)
     const videosPromise = fetchYouTubeVideos(userData.weakTopic, DEFAULT_VIDEO_COUNT)
 
-    // Step 3: Generate resource links (synchronous)
-    const links = generateResourceLinks(userData.weakTopic, strategy)
+    // Step 3: Generate resource links (parallel)
+    const linksPromise = generateResourceLinks(userData.weakTopic, strategy)
 
     // Step 4: Generate LLM notes (parallel)
     const notesPromise = generateLLMNotes(userData.weakTopic, strategy)
 
     // Wait for async operations
-    const [videos, notes] = await Promise.all([videosPromise, notesPromise])
+    const [videos, notes, links] = await Promise.all([videosPromise, notesPromise, linksPromise])
     
     const topicTokens = tokenizeTopic(userData.weakTopic)
     const requiredRelevanceScore = getRequiredRelevanceScore(topicTokens)

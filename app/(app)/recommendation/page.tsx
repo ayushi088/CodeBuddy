@@ -113,8 +113,7 @@ export default function RecommendationPage() {
     [selectedSubjectId, subjects]
   )
 
-  const recommendationTopic =
-    selectedTopic.trim() || selectedSubject?.name || selectedScenario.weakTopic
+  const recommendationTopic = selectedTopic.trim()
 
   return (
     <div className="space-y-6 p-6">
@@ -183,7 +182,7 @@ export default function RecommendationPage() {
         <CardHeader>
           <CardTitle>Choose a Subject</CardTitle>
           <CardDescription>
-            Pick the subject you want resources for. The selected subject will be used as the topic.
+            Pick a subject for context, then type the exact topic. Recommendations now use only the typed topic.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -221,6 +220,11 @@ export default function RecommendationPage() {
           {recommendationTopic && (
             <p className="text-sm text-muted-foreground">
               Suggesting resources for <span className="font-medium text-foreground">{recommendationTopic}</span>.
+            </p>
+          )}
+          {!recommendationTopic && (
+            <p className="text-sm text-muted-foreground">
+              Enter a topic above to generate notes and resources.
             </p>
           )}
         </CardContent>
@@ -266,6 +270,7 @@ export default function RecommendationPage() {
 
       {/* Main Recommendation Component */}
       <Recommendation
+        key={`${selectedScenario.id}-${recommendationTopic}`}
         focusScore={selectedScenario.focusScore}
         emotion={selectedScenario.emotion}
         weakTopic={recommendationTopic}
